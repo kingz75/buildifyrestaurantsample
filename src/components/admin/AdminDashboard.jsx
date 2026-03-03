@@ -65,6 +65,11 @@ export default function AdminDashboard({ user, onLogout }) {
 
   useEffect(() => {
     const unsubOrders = subscribeToOrders((all) => {
+      console.log(
+        "AdminDashboard: Received orders update:",
+        all.length,
+        "orders",
+      );
       if (all.length > prevOrderCount.current) {
         if (prevOrderCount.current > 0) {
           playNotificationSound();
