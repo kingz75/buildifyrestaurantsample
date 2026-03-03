@@ -470,7 +470,8 @@ export default function CustomerApp({ tableNumber: initialTable }) {
   if (payingOrder) {
     // Calculate unpaid orders for this table
     const unpaidTableOrders = tableOrders.filter(
-      (o) => o.table === payingOrder.table && o.paymentStatus === "Unpaid" && o.items
+      (o) => o.table === payingOrder.table && o.paymentStatus === "Unpaid" && o.items &&
+        ["Confirmed", "Preparing", "Ready"].includes(o.status)
     );
     const singleTotal = payingOrder.items.reduce(
       (sum, item) => sum + item.price * item.qty,
@@ -602,7 +603,8 @@ export default function CustomerApp({ tableNumber: initialTable }) {
 
     // Compute unpaid table orders for the pay-all toggle
     const unpaidTableOrdersForToggle = tableOrders.filter(
-      (o) => o.table === table && o.paymentStatus === "Unpaid" && o.items
+      (o) => o.table === table && o.paymentStatus === "Unpaid" && o.items &&
+        ["Confirmed", "Preparing", "Ready"].includes(o.status)
     );
 
     return (

@@ -269,7 +269,21 @@ export default function ItemForm({
       </div>
       <div style={{ display: "flex", gap: "8px" }}>
         <button
-          onClick={() => onSave(form)}
+          onClick={() => {
+            if (!form.name.trim()) {
+              alert("Item name is required");
+              return;
+            }
+            if (!form.price || isNaN(Number(form.price)) || Number(form.price) <= 0) {
+              alert("Valid price is required");
+              return;
+            }
+            if (!form.category) {
+              alert("Category is required");
+              return;
+            }
+            onSave({ ...form, price: Number(form.price) });
+          }}
           style={{
             background: accent,
             border: "none",
