@@ -1,7 +1,15 @@
 // ============================================================
 // FIREBASE-BACKED STORAGE (Real-time sync across devices)
 // ============================================================
-import { ref, set, get, onValue, push, remove, update } from "firebase/database";
+import {
+  ref,
+  set,
+  get,
+  onValue,
+  push,
+  remove,
+  update,
+} from "firebase/database";
 import { database } from "../firebase";
 import {
   MENU_ITEMS,
@@ -39,23 +47,38 @@ export const getOrders = async () => {
 
 export const saveOrders = async (orders) => {
   // For simplicity, we'll replace all orders
-  await set(ordersRef, orders.reduce((acc, order) => {
-    acc[order.id] = order;
-    return acc;
-  }, {}));
+  await set(
+    ordersRef,
+    orders.reduce((acc, order) => {
+      acc[order.id] = order;
+      return acc;
+    }, {}),
+  );
 };
 
 // Add a new order
 export const addOrder = async (order) => {
-  const newOrderRef = push(ordersRef);
-  await set(newOrderRef, order);
-  return newOrderRef.key;
+  try {
+    const newOrderRef = push(ordersRef);
+    await set(newOrderRef, order);
+    console.log("Order added:", newOrderRef.key);
+    return newOrderRef.key;
+  } catch (error) {
+    console.error("Failed to add order:", error);
+    throw error;
+  }
 };
 
 // Update an existing order
 export const updateOrder = async (orderId, updates) => {
-  const orderRef = ref(database, `orders/${orderId}`);
-  await update(orderRef, updates);
+  try {
+    const orderRef = ref(database, `orders/${orderId}`);
+    await update(orderRef, updates);
+    console.log("Order updated:", orderId, updates);
+  } catch (error) {
+    console.error("Failed to update order:", error);
+    throw error;
+  }
 };
 
 // Delete an order
@@ -66,20 +89,24 @@ export const deleteOrder = async (orderId) => {
 
 // Subscribe to orders changes (real-time)
 export const subscribeToOrders = (callback) => {
-  return onValue(ordersRef, (snapshot) => {
-    if (snapshot.exists()) {
-      const orders = Object.entries(snapshot.val()).map(([id, data]) => ({
-        id,
-        ...data,
-      }));
-      callback(orders);
-    } else {
+  return onValue(
+    ordersRef,
+    (snapshot) => {
+      if (snapshot.exists()) {
+        const orders = Object.entries(snapshot.val()).map(([id, data]) => ({
+          id,
+          ...data,
+        }));
+        callback(orders);
+      } else {
+        callback([]);
+      }
+    },
+    (error) => {
+      console.error("Firebase orders subscription error:", error);
       callback([]);
-    }
-  }, (error) => {
-    console.error("Firebase orders subscription error:", error);
-    callback([]);
-  });
+    },
+  );
 };
 
 // ============================================================
@@ -92,25 +119,32 @@ export const getMenuItems = () => {
 };
 
 export const saveMenu = async (items) => {
-  await set(menuRef, items.reduce((acc, item) => {
-    acc[item.id] = item;
-    return acc;
-  }, {}));
+  await set(
+    menuRef,
+    items.reduce((acc, item) => {
+      acc[item.id] = item;
+      return acc;
+    }, {}),
+  );
 };
 
 // Subscribe to menu changes (real-time)
 export const subscribeToMenu = (callback) => {
-  return onValue(menuRef, (snapshot) => {
-    if (snapshot.exists()) {
-      const items = Object.values(snapshot.val());
-      callback(items);
-    } else {
+  return onValue(
+    menuRef,
+    (snapshot) => {
+      if (snapshot.exists()) {
+        const items = Object.values(snapshot.val());
+        callback(items);
+      } else {
+        callback(MENU_ITEMS);
+      }
+    },
+    (error) => {
+      console.error("Firebase menu subscription error:", error);
       callback(MENU_ITEMS);
-    }
-  }, (error) => {
-    console.error("Firebase menu subscription error:", error);
-    callback(MENU_ITEMS);
-  });
+    },
+  );
 };
 
 // ============================================================
@@ -131,25 +165,32 @@ export const getTables = () => {
 };
 
 export const saveTables = async (tables) => {
-  await set(tablesRef, tables.reduce((acc, table) => {
-    acc[table.id] = table;
-    return acc;
-  }, {}));
+  await set(
+    tablesRef,
+    tables.reduce((acc, table) => {
+      acc[table.id] = table;
+      return acc;
+    }, {}),
+  );
 };
 
 // Subscribe to tables changes (real-time)
 export const subscribeToTables = (callback) => {
-  return onValue(tablesRef, (snapshot) => {
-    if (snapshot.exists()) {
-      const tables = Object.values(snapshot.val());
-      callback(tables);
-    } else {
+  return onValue(
+    tablesRef,
+    (snapshot) => {
+      if (snapshot.exists()) {
+        const tables = Object.values(snapshot.val());
+        callback(tables);
+      } else {
+        callback(DEFAULT_TABLES);
+      }
+    },
+    (error) => {
+      console.error("Firebase tables subscription error:", error);
       callback(DEFAULT_TABLES);
-    }
-  }, (error) => {
-    console.error("Firebase tables subscription error:", error);
-    callback(DEFAULT_TABLES);
-  });
+    },
+  );
 };
 
 // ============================================================
