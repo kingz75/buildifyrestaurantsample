@@ -9,6 +9,7 @@ const firebaseConfig = {
   messagingSenderId: "1099050453745",
   appId: "1:1099050453745:web:e772169923d75c5ab4b750",
   measurementId: "G-D34NFRLK6H",
+  databaseURL: "https://buildifyresturant-default-rtdb.firebaseio.com",
 };
 
 const app = initializeApp(firebaseConfig);
