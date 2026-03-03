@@ -142,7 +142,13 @@ export default function AdminDashboard({ user, onLogout }) {
   };
 
   const markPaid = async (id) => {
+    console.log("Marking paid:", id);
     await updateOrder(id, { paymentStatus: "Paid" });
+    // Check if order was updated
+    setTimeout(() => {
+      const updated = orders.find((o) => o.id === id);
+      console.log("Order after payment update:", updated);
+    }, 1000);
   };
 
   const realOrders = orders.filter((o) => o.items);
