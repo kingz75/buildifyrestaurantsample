@@ -752,7 +752,7 @@ export default function AdminDashboard({ user, onLogout }) {
                 </div>
               ) : (
                 <div style={{ display: "grid", gap: "12px" }}>
-                  {filteredOrders.map((order) => (
+                  {[...filteredOrders].sort((a, b) => b.timestamp - a.timestamp).map((order) => (
                     <div
                       key={order.id}
                       style={{

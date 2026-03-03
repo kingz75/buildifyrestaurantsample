@@ -16,6 +16,9 @@ export default function OrderStatus({
   onPay,
   otherOrders = [],
   onSelectOrder,
+  payAllOrders = false,
+  onTogglePayAll,
+  unpaidTableOrders = [],
 }) {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showOrderSelector, setShowOrderSelector] = useState(false);
@@ -32,6 +35,11 @@ export default function OrderStatus({
   const isUnpaid = order.paymentStatus === "Unpaid";
   const showPayNow =
     isUnpaid && ["Confirmed", "Preparing", "Ready"].includes(order.status);
+  const hasMultipleUnpaid = unpaidTableOrders.length > 1;
+  const allUnpaidTotal = unpaidTableOrders.reduce(
+    (s, o) => s + o.items.reduce((sum, i) => sum + i.price * i.qty, 0),
+    0,
+  );
   const editingTotal =
     editingCart?.reduce((s, i) => s + i.price * i.qty, 0) || 0;
 
@@ -452,22 +460,99 @@ export default function OrderStatus({
         ) : (
           <div>
             {showPayNow ? (
-              <button
-                onClick={() => onPay && onPay()}
-                style={{
-                  width: "100%",
-                  background: "#22c55e",
-                  border: "none",
-                  color: "#fff",
-                  padding: "14px",
-                  borderRadius: "10px",
-                  fontSize: "15px",
-                  fontWeight: "700",
-                  marginBottom: "10px",
-                }}
-              >
-                💳 Pay Now
-              </button>
+              <>
+                {/* Pay for All Toggle */}
+                {hasMultipleUnpaid && (
+                  <div
+                    style={{
+                      background: payAllOrders ? "#22c55e11" : "#1a0a00",
+                      border: `1px solid ${payAllOrders ? "#22c55e44" : "#2d1200"}`,
+                      borderRadius: "12px",
+                      padding: "14px 16px",
+                      marginBottom: "12px",
+                      transition: "all 0.3s",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        cursor: "pointer",
+                      }}
+                      onClick={onTogglePayAll}
+                    >
+                      <div>
+                        <div style={{ color: "#e8b86d", fontWeight: "600", fontSize: "14px" }}>
+                          Pay for all orders
+                        </div>
+                        <div style={{ color: "#7a5c30", fontSize: "12px", marginTop: "2px" }}>
+                          {unpaidTableOrders.length} unpaid orders on Table #{order.table}
+                        </div>
+                      </div>
+                      {/* Toggle Switch */}
+                      <div
+                        style={{
+                          width: "44px",
+                          height: "24px",
+                          borderRadius: "12px",
+                          background: payAllOrders ? "#22c55e" : "#3d2200",
+                          position: "relative",
+                          transition: "background 0.3s",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: "20px",
+                            height: "20px",
+                            borderRadius: "50%",
+                            background: "#fff",
+                            position: "absolute",
+                            top: "2px",
+                            left: payAllOrders ? "22px" : "2px",
+                            transition: "left 0.3s",
+                            boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                          }}
+                        />
+                      </div>
+                    </div>
+                    {payAllOrders && (
+                      <div
+                        style={{
+                          marginTop: "10px",
+                          paddingTop: "10px",
+                          borderTop: "1px solid #2d1200",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          color: "#22c55e",
+                          fontWeight: "700",
+                          fontSize: "15px",
+                        }}
+                      >
+                        <span>Combined Total</span>
+                        <span>{fmt(allUnpaidTotal)}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <button
+                  onClick={() => onPay && onPay()}
+                  style={{
+                    width: "100%",
+                    background: "#22c55e",
+                    border: "none",
+                    color: "#fff",
+                    padding: "14px",
+                    borderRadius: "10px",
+                    fontSize: "15px",
+                    fontWeight: "700",
+                    marginBottom: "10px",
+                  }}
+                >
+                  💳 {payAllOrders ? `Pay All ${fmt(allUnpaidTotal)}` : "Pay Now"}
+                </button>
+              </>
             ) : (
               <>
                 {canEdit && (

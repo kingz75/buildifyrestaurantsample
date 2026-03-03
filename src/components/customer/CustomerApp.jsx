@@ -48,6 +48,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
   const [isEditingOrder, setIsEditingOrder] = useState(false);
   const [editingCart, setEditingCart] = useState([]);
   const [payingOrder, setPayingOrder] = useState(null); // order being paid for
+  const [payAllOrders, setPayAllOrders] = useState(false); // pay for all unpaid orders on table
   const [tables, setTables] = useState(getTables);
   const [tableOrders, setTableOrders] = useState([]); // multiple active orders for current table
   const [orders, setOrders] = useState([]); // all orders from Firebase
@@ -77,6 +78,50 @@ export default function CustomerApp({ tableNumber: initialTable }) {
       localStorage.setItem('rqs_orderPlaced', JSON.stringify(orderPlaced));
     }
   }, [table, view, orderPlaced, isRestored]);
+
+  // Browser back button support via History API
+  const skipPushRef = useRef(false);
+  useEffect(() => {
+    if (skipPushRef.current) {
+      skipPushRef.current = false;
+      return;
+    }
+    // Push current view state to browser history
+    const stateObj = { view, cartOpen, payMode };
+    history.pushState(stateObj, '', '');
+  }, [view]);
+
+  useEffect(() => {
+    const handlePopState = (event) => {
+      skipPushRef.current = true;
+      // Close overlays first
+      if (cartOpen) {
+        setCartOpen(false);
+        return;
+      }
+      if (payMode) {
+        setPayMode(null);
+        return;
+      }
+      if (payingOrder) {
+        setPayingOrder(null);
+        return;
+      }
+      // Navigate between views
+      if (event.state && event.state.view) {
+        setView(event.state.view);
+      } else {
+        // Fallback: go back in view hierarchy
+        if (view === 'order_status') {
+          setView('menu');
+        } else if (view === 'menu') {
+          setView('table_select');
+        }
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [view, cartOpen, payMode, payingOrder]);
 
   // Listen for real-time updates from Firebase
   useEffect(() => {
@@ -423,20 +468,37 @@ export default function CustomerApp({ tableNumber: initialTable }) {
   }
 
   if (payingOrder) {
-    const orderTotal = payingOrder.items.reduce(
+    // Calculate unpaid orders for this table
+    const unpaidTableOrders = tableOrders.filter(
+      (o) => o.table === payingOrder.table && o.paymentStatus === "Unpaid" && o.items
+    );
+    const singleTotal = payingOrder.items.reduce(
       (sum, item) => sum + item.price * item.qty,
       0,
     );
+    const allTotal = unpaidTableOrders.reduce(
+      (sum, o) => sum + o.items.reduce((s, i) => s + i.price * i.qty, 0),
+      0,
+    );
+    const payTotal = payAllOrders ? allTotal : singleTotal;
     return (
       <PaymentView
-        total={orderTotal}
+        total={payTotal}
         table={payingOrder.table}
         onSuccess={async () => {
-          await updateOrder(payingOrder.id, { paymentStatus: "Paid", paymentMethod: "Card" });
+          if (payAllOrders) {
+            // Mark all unpaid orders on this table as Paid
+            for (const o of unpaidTableOrders) {
+              await updateOrder(o.id, { paymentStatus: "Paid", paymentMethod: "Card" });
+            }
+          } else {
+            await updateOrder(payingOrder.id, { paymentStatus: "Paid", paymentMethod: "Card" });
+          }
           setLiveOrder({ ...payingOrder, paymentStatus: "Paid", paymentMethod: "Card" });
           setPayingOrder(null);
+          setPayAllOrders(false);
         }}
-        onCancel={() => setPayingOrder(null)}
+        onCancel={() => { setPayingOrder(null); setPayAllOrders(false); }}
       />
     );
   }
@@ -538,6 +600,11 @@ export default function CustomerApp({ tableNumber: initialTable }) {
       );
     }
 
+    // Compute unpaid table orders for the pay-all toggle
+    const unpaidTableOrdersForToggle = tableOrders.filter(
+      (o) => o.table === table && o.paymentStatus === "Unpaid" && o.items
+    );
+
     return (
       <OrderStatus
         order={liveOrder}
@@ -576,6 +643,9 @@ export default function CustomerApp({ tableNumber: initialTable }) {
             setOrderPlaced(selectedOrder);
           }
         }}
+        payAllOrders={payAllOrders}
+        onTogglePayAll={() => setPayAllOrders((prev) => !prev)}
+        unpaidTableOrders={unpaidTableOrdersForToggle}
       />
     );
   }
