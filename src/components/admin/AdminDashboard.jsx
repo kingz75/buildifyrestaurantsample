@@ -64,11 +64,17 @@ export default function AdminDashboard({ user, onLogout }) {
   }, []);
 
   useEffect(() => {
+    console.log("AdminDashboard: Setting up orders subscription");
     const unsubOrders = subscribeToOrders((all) => {
       console.log(
         "AdminDashboard: Received orders update:",
         all.length,
         "orders",
+        all.map((o) => ({
+          id: o.id,
+          paymentStatus: o.paymentStatus,
+          status: o.status,
+        })),
       );
       if (all.length > prevOrderCount.current) {
         if (prevOrderCount.current > 0) {
