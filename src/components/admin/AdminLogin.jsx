@@ -23,7 +23,7 @@ export default function AdminLogin({ onLogin }) {
         <input placeholder="Username" value={creds.username} onChange={e=>setCreds({...creds,username:e.target.value})} style={{width:"100%", background:"#0f0f12", border:"1px solid #2a2a3a", color:"#e8e0f0", padding:"12px 14px", borderRadius:"10px", marginBottom:"12px", outline:"none", boxSizing:"border-box", fontFamily:"inherit", fontSize:"14px"}} />
         <input type="password" placeholder="Password" value={creds.password} onChange={e=>setCreds({...creds,password:e.target.value})} onKeyDown={e=>e.key==="Enter"&&submit()} style={{width:"100%", background:"#0f0f12", border:"1px solid #2a2a3a", color:"#e8e0f0", padding:"12px 14px", borderRadius:"10px", marginBottom:"6px", outline:"none", boxSizing:"border-box", fontFamily:"inherit", fontSize:"14px"}} />
         <div style={{fontSize:"11px", color:"#4a4a6a", marginBottom:"20px"}}>Test: owner/owner123 | manager/mgr123 | staff/staff123</div>
-        <button onClick={submit} style={{width:"100%", background:"#7c5ccc", border:"none", color:"#fff", padding:"14px", borderRadius:"10px", fontSize:"15px", fontWeight:"700", cursor:"pointer", fontFamily:"inherit"}}>Login</button>
+        <button onClick={submit} style={{width:"100%", background:"#8464d4", border:"none", color:"#fff", padding:"14px", borderRadius:"10px", fontSize:"15px", fontWeight:"700", cursor:"pointer", fontFamily:"inherit"}}>Login</button>
       </div>
     </div>
   );
