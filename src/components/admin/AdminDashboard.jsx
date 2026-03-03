@@ -175,7 +175,7 @@ export default function AdminDashboard({ user, onLogout }) {
   const border = darkMode ? "#2a2a3a" : "#e0e0e5";
   const accent = "#7c5ccc";
   const text = darkMode ? "#e8e0f0" : "#1a1a2e";
-  const muted = darkMode ? "#6a6a8a" : "#6a6a8a";
+  const muted = darkMode ? "#6a6a8a" : "#646485";
 
   const generateInvoice = (order) => {
     const w = window.open("", "_blank");
@@ -1270,8 +1270,8 @@ export default function AdminDashboard({ user, onLogout }) {
                                     borderRadius: "4px",
                                   }}
                                 >
-                                  {item.image &&
-                                    item.image.startsWith("data:") ? (
+                                  {item?.image &&
+                                    String(item.image).startsWith("data:") ? (
                                     <img
                                       src={item.image}
                                       alt={item.name}
@@ -1294,8 +1294,8 @@ export default function AdminDashboard({ user, onLogout }) {
                                   marginTop: "2px",
                                 }}
                               >
-                                {fmt(item.price)} •{" "}
-                                {item.tags.join(", ") || "No tags"}
+                                {fmt(item?.price || 0)} •{" "}
+                                {item?.tags?.join(", ") || "No tags"}
                               </div>
                             </div>
                             <div style={{ display: "flex", gap: "6px" }}>

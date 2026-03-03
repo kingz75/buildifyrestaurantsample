@@ -16,7 +16,11 @@ export default function ItemForm({
 }) {
   const menuCategories = categories || getCategories();
   const [form, setForm] = useState(
-    item || {
+    item ? {
+      tags: [],
+      image: "🍽️",
+      ...item
+    } : {
       name: "",
       category: "Starters",
       price: "",

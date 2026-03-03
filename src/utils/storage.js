@@ -35,7 +35,8 @@ export const subscribeToCategories = (callback) => {
     categoriesRef,
     (snapshot) => {
       if (snapshot.exists()) {
-        callback(snapshot.val());
+        const val = snapshot.val();
+        callback(Array.isArray(val) ? val : Object.values(val));
       } else {
         callback(DEFAULT_CATEGORIES);
       }
@@ -159,7 +160,13 @@ export const subscribeToMenu = (callback) => {
     menuRef,
     (snapshot) => {
       if (snapshot.exists()) {
-        const items = Object.entries(snapshot.val()).map(([id, data]) => ({ ...data, id }));
+        const val = snapshot.val();
+        const items = Object.entries(val).map(([id, data]) => ({
+          tags: [],
+          image: "🍽️",
+          ...data,
+          id
+        }));
         callback(items);
       } else {
         callback(MENU_ITEMS);
