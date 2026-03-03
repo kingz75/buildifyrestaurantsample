@@ -76,6 +76,9 @@ export const subscribeToOrders = (callback) => {
     } else {
       callback([]);
     }
+  }, (error) => {
+    console.error("Firebase orders subscription error:", error);
+    callback([]);
   });
 };
 
@@ -104,6 +107,9 @@ export const subscribeToMenu = (callback) => {
     } else {
       callback(MENU_ITEMS);
     }
+  }, (error) => {
+    console.error("Firebase menu subscription error:", error);
+    callback(MENU_ITEMS);
   });
 };
 
@@ -140,6 +146,9 @@ export const subscribeToTables = (callback) => {
     } else {
       callback(DEFAULT_TABLES);
     }
+  }, (error) => {
+    console.error("Firebase tables subscription error:", error);
+    callback(DEFAULT_TABLES);
   });
 };
 

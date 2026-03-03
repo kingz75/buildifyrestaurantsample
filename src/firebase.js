@@ -12,7 +12,12 @@ const firebaseConfig = {
   databaseURL: "https://buildifyresturant-default-rtdb.firebaseio.com",
 };
 
+// Log config for debugging
+console.log("Firebase config:", firebaseConfig);
+
 const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
+
+console.log("Firebase database initialized:", database);
 
 export { database };
