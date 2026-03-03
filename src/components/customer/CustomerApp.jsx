@@ -20,13 +20,23 @@ import CartDrawer from "./CartDrawer";
 import MenuItem from "./MenuItem";
 
 export default function CustomerApp({ tableNumber: initialTable }) {
-  const [table, setTable] = useState(initialTable);
+  // Restore table from localStorage if no URL param
+  const [table, setTable] = useState(() => {
+    if (initialTable) return initialTable;
+    const saved = localStorage.getItem('rqs_table');
+    return saved ? parseInt(saved) : null;
+  });
   const [menuItems, setMenuItems] = useState(getMenuItems);
   const [categories, setCategories] = useState(getCategories);
   const [cart, setCart] = useState([]);
   const [category, setCategory] = useState("All");
   const [search, setSearch] = useState("");
-  const [view, setView] = useState(initialTable ? "menu" : "table_select");
+  const [view, setView] = useState(() => {
+    // Restore view from localStorage
+    const saved = localStorage.getItem('rqs_view');
+    if (initialTable || saved === 'menu') return 'menu';
+    return 'table_select';
+  });
   const [orderPlaced, setOrderPlaced] = useState(null);
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [cartOpen, setCartOpen] = useState(false);
@@ -40,6 +50,32 @@ export default function CustomerApp({ tableNumber: initialTable }) {
   const [tables, setTables] = useState(getTables);
   const [tableOrders, setTableOrders] = useState([]); // multiple active orders for current table
   const [orders, setOrders] = useState([]); // all orders from Firebase
+  const [isRestored, setIsRestored] = useState(false); // Track if we've restored state
+
+  // Restore order from localStorage on mount
+  useEffect(() => {
+    const savedOrder = localStorage.getItem('rqs_orderPlaced');
+    if (savedOrder) {
+      try {
+        setOrderPlaced(JSON.parse(savedOrder));
+      } catch (e) {
+        console.error('Failed to parse saved order:', e);
+      }
+    }
+    setIsRestored(true);
+  }, []);
+
+  // Persist session to localStorage when state changes
+  useEffect(() => {
+    if (!isRestored) return;
+    if (table) {
+      localStorage.setItem('rqs_table', table.toString());
+    }
+    localStorage.setItem('rqs_view', view);
+    if (orderPlaced) {
+      localStorage.setItem('rqs_orderPlaced', JSON.stringify(orderPlaced));
+    }
+  }, [table, view, orderPlaced, isRestored]);
 
   // Listen for real-time updates from Firebase
   useEffect(() => {
