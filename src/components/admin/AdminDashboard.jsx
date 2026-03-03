@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { ORDER_STATUSES, STATUS_COLORS } from "../../data/constants";
 import {
@@ -49,6 +49,7 @@ export default function AdminDashboard({ user, onLogout }) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
+  const [orderVersion, setOrderVersion] = useState(0);
 
   useEffect(() => {
     localStorage.setItem("rqs_darkmode", JSON.stringify(darkMode));
@@ -63,34 +64,9 @@ export default function AdminDashboard({ user, onLogout }) {
       window.removeEventListener("rqs_notification", loadNotifications);
   }, []);
 
+  // Subscribe to orders
   useEffect(() => {
-    console.log("AdminDashboard: Setting up orders subscription");
     const unsubOrders = subscribeToOrders((all) => {
-      console.log(
-        "AdminDashboard: Received orders update:",
-        all.length,
-        "orders",
-        all.map((o) => ({
-          id: o.id,
-          paymentStatus: o.paymentStatus,
-          status: o.status,
-        })),
-      );
-      if (all.length > prevOrderCount.current) {
-        if (prevOrderCount.current > 0) {
-          playNotificationSound();
-          const newOrder = all[0];
-          if (newOrder) {
-            saveNotification({
-              type: "new_order",
-              title: "New Order",
-              message: `Table ${newOrder.table} placed an order - ${fmt(newOrder.total)}`,
-              table: newOrder.table,
-            });
-          }
-        }
-        prevOrderCount.current = all.length;
-      }
       setOrders(all);
     });
 
@@ -148,13 +124,18 @@ export default function AdminDashboard({ user, onLogout }) {
   };
 
   const markPaid = async (id) => {
-    console.log("Marking paid:", id);
-    await updateOrder(id, { paymentStatus: "Paid" });
-    // Check if order was updated
-    setTimeout(() => {
-      const updated = orders.find((o) => o.id === id);
-      console.log("Order after payment update:", updated);
-    }, 1000);
+    console.log("markPaid: Starting for order:", id);
+    // Optimistically update local state immediately
+    setOrders((prev) =>
+      prev.map((o) => (o.id === id ? { ...o, paymentStatus: "Paid" } : o)),
+    );
+    console.log("markPaid: Calling updateOrder for:", id);
+    try {
+      await updateOrder(id, { paymentStatus: "Paid" });
+      console.log("markPaid: updateOrder completed for:", id);
+    } catch (error) {
+      console.error("markPaid: Error:", error);
+    }
   };
 
   const realOrders = orders.filter((o) => o.items);

@@ -11,6 +11,10 @@ import {
   update,
 } from "firebase/database";
 import { database } from "../firebase";
+
+// Debug: Verify database is initialized
+console.log("Storage: Database imported:", database);
+
 import {
   MENU_ITEMS,
   MENU_CATEGORIES as DEFAULT_CATEGORIES,
@@ -46,7 +50,6 @@ export const getOrders = async () => {
 };
 
 export const saveOrders = async (orders) => {
-  // For simplicity, we'll replace all orders
   await set(
     ordersRef,
     orders.reduce((acc, order) => {
@@ -58,25 +61,20 @@ export const saveOrders = async (orders) => {
 
 // Add a new order
 export const addOrder = async (order) => {
-  try {
-    const newOrderRef = push(ordersRef);
-    await set(newOrderRef, order);
-    console.log("Order added:", newOrderRef.key);
-    return newOrderRef.key;
-  } catch (error) {
-    console.error("Failed to add order:", error);
-    throw error;
-  }
+  const newOrderRef = push(ordersRef);
+  await set(newOrderRef, order);
+  return newOrderRef.key;
 };
 
 // Update an existing order
 export const updateOrder = async (orderId, updates) => {
+  console.log("updateOrder: Attempting to update", orderId, "with", updates);
+  const orderRef = ref(database, `orders/${orderId}`);
   try {
-    const orderRef = ref(database, `orders/${orderId}`);
     await update(orderRef, updates);
-    console.log("Order updated:", orderId, updates);
+    console.log("updateOrder: Successfully updated");
   } catch (error) {
-    console.error("Failed to update order:", error);
+    console.error("updateOrder: Failed with error:", error);
     throw error;
   }
 };
@@ -89,24 +87,33 @@ export const deleteOrder = async (orderId) => {
 
 // Subscribe to orders changes (real-time)
 export const subscribeToOrders = (callback) => {
-  return onValue(
+  console.log("subscribeToOrders: Starting subscription...");
+  const unsubscribe = onValue(
     ordersRef,
     (snapshot) => {
+      console.log(
+        "subscribeToOrders: Got snapshot, exists:",
+        snapshot.exists(),
+      );
       if (snapshot.exists()) {
         const orders = Object.entries(snapshot.val()).map(([id, data]) => ({
           id,
           ...data,
         }));
+        console.log("subscribeToOrders: Parsed orders:", orders.length);
         callback(orders);
       } else {
+        console.log("subscribeToOrders: No data");
         callback([]);
       }
     },
     (error) => {
-      console.error("Firebase orders subscription error:", error);
+      console.error("subscribeToOrders: Error:", error);
       callback([]);
     },
   );
+  console.log("subscribeToOrders: Subscription active");
+  return unsubscribe;
 };
 
 // ============================================================
