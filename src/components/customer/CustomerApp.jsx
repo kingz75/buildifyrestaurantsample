@@ -39,6 +39,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
   const [payingOrder, setPayingOrder] = useState(null); // order being paid for
   const [tables, setTables] = useState(getTables);
   const [tableOrders, setTableOrders] = useState([]); // multiple active orders for current table
+  const [orders, setOrders] = useState([]); // all orders from Firebase
 
   // Listen for real-time updates from Firebase
   useEffect(() => {
@@ -49,6 +50,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
       setTables(tables);
     });
     const unsubOrders = subscribeToOrders((orders) => {
+      setOrders(orders); // Store all orders
       // Update table orders if we have an active table
       if (table) {
         const tableOrdersList = orders.filter(
@@ -106,6 +108,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
     if (!orderPlaced) return;
     // Initial fetch
     getOrders().then((orders) => {
+      setOrders(orders); // Also update orders state
       const found = orders.find((o) => o.id === orderPlaced.id);
       if (found) {
         setLiveOrder(found);
@@ -180,7 +183,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
 
   const saveEditedOrder = () => {
     if (!liveOrder || editingCart.length === 0) return;
-    const all = getOrders();
+    const all = orders;
     const updated = all.map((o) => {
       if (o.id === liveOrder.id) {
         return {
@@ -231,8 +234,8 @@ export default function CustomerApp({ tableNumber: initialTable }) {
   };
 
   const callWaiter = () => {
-    const orders = getOrders();
-    orders.unshift({
+    const currentOrders = orders;
+    currentOrders.unshift({
       id: generateId(),
       table,
       type: "waiter_call",
@@ -257,9 +260,8 @@ export default function CustomerApp({ tableNumber: initialTable }) {
         tables={tables}
         onSelect={(t) => {
           setTable(t);
-          // Check for existing active orders for this table
-          const allOrders = getOrders();
-          const activeOrders = allOrders.filter(
+          // Check for existing active orders for this table (use state)
+          const activeOrders = tableOrders.filter(
             (o) =>
               o.table === t &&
               o.items &&
@@ -401,8 +403,8 @@ export default function CustomerApp({ tableNumber: initialTable }) {
         total={orderTotal}
         table={payingOrder.table}
         onSuccess={() => {
-          const orders = getOrders();
-          const updated = orders.map((o) =>
+          const currentOrders = orders;
+          const updated = currentOrders.map((o) =>
             o.id === payingOrder.id
               ? { ...o, paymentStatus: "Paid", paymentMethod: "Card" }
               : o,
@@ -417,7 +419,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
   }
   if (view === "order_status") {
     // Check if there are multiple active orders for this table
-    const allOrders = getOrders();
+    const allOrders = orders;
     const activeOrders = allOrders.filter(
       (o) =>
         o.table === table &&
@@ -535,7 +537,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
         onPay={handlePayNow}
         otherOrders={
           liveOrder
-            ? getOrders().filter(
+            ? tableOrders.filter(
                 (o) =>
                   o.table === liveOrder.table &&
                   o.id !== liveOrder.id &&
@@ -545,7 +547,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
             : []
         }
         onSelectOrder={(orderId) => {
-          const selectedOrder = getOrders().find((o) => o.id === orderId);
+          const selectedOrder = tableOrders.find((o) => o.id === orderId);
           if (selectedOrder) {
             setLiveOrder(selectedOrder);
             setOrderPlaced(selectedOrder);
@@ -701,7 +703,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
               >
                 📋
                 {(() => {
-                  const allOrders = getOrders();
+                  const allOrders = orders;
                   const activeOrders = allOrders.filter(
                     (o) =>
                       o.table === table &&
