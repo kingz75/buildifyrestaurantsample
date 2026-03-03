@@ -5,7 +5,7 @@ export default function App() {
   const tableParam = params.get("table");
   const view = params.get("view");
 
-  if (view === "customer") return <CustomerApp tableNumber={tableParam ? parseInt(tableParam) : null} />;
+  if (view === "customer" || tableParam) return <CustomerApp tableNumber={tableParam ? parseInt(tableParam) : null} />;
   if (view === "kitchen") return <KitchenView />;
   return <AdminApp />;
 }
