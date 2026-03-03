@@ -29,6 +29,24 @@ export const getCategories = () => {
   return DEFAULT_CATEGORIES;
 };
 
+// Subscribe to categories changes (real-time)
+export const subscribeToCategories = (callback) => {
+  return onValue(
+    categoriesRef,
+    (snapshot) => {
+      if (snapshot.exists()) {
+        callback(snapshot.val());
+      } else {
+        callback(DEFAULT_CATEGORIES);
+      }
+    },
+    (error) => {
+      console.error("Firebase categories subscription error:", error);
+      callback(DEFAULT_CATEGORIES);
+    },
+  );
+};
+
 export const saveCategories = async (categories) => {
   await set(categoriesRef, categories);
 };
@@ -41,9 +59,9 @@ const ordersRef = ref(database, "orders");
 export const getOrders = async () => {
   const snapshot = await get(ordersRef);
   if (snapshot.exists()) {
-    return Object.entries(snapshot.val()).map(([id, data]) => ({
-      id,
+    return Object.entries(snapshot.val()).map(([firebaseKey, data]) => ({
       ...data,
+      id: firebaseKey,
     }));
   }
   return [];
@@ -59,11 +77,11 @@ export const saveOrders = async (orders) => {
   );
 };
 
-// Add a new order
+// Add a new order (uses order's own id as the Firebase key)
 export const addOrder = async (order) => {
-  const newOrderRef = push(ordersRef);
-  await set(newOrderRef, order);
-  return newOrderRef.key;
+  const orderRef = ref(database, `orders/${order.id}`);
+  await set(orderRef, order);
+  return order.id;
 };
 
 // Update an existing order
@@ -96,9 +114,9 @@ export const subscribeToOrders = (callback) => {
         snapshot.exists(),
       );
       if (snapshot.exists()) {
-        const orders = Object.entries(snapshot.val()).map(([id, data]) => ({
-          id,
+        const orders = Object.entries(snapshot.val()).map(([firebaseKey, data]) => ({
           ...data,
+          id: firebaseKey,
         }));
         console.log("subscribeToOrders: Parsed orders:", orders.length);
         callback(orders);
@@ -141,7 +159,7 @@ export const subscribeToMenu = (callback) => {
     menuRef,
     (snapshot) => {
       if (snapshot.exists()) {
-        const items = Object.values(snapshot.val());
+        const items = Object.entries(snapshot.val()).map(([id, data]) => ({ ...data, id }));
         callback(items);
       } else {
         callback(MENU_ITEMS);
@@ -187,7 +205,7 @@ export const subscribeToTables = (callback) => {
     tablesRef,
     (snapshot) => {
       if (snapshot.exists()) {
-        const tables = Object.values(snapshot.val());
+        const tables = Object.entries(snapshot.val()).map(([id, data]) => ({ ...data, id }));
         callback(tables);
       } else {
         callback(DEFAULT_TABLES);
@@ -221,7 +239,7 @@ export function playNotificationSound() {
       osc.start(ctx.currentTime + i * 0.15);
       osc.stop(ctx.currentTime + i * 0.15 + 0.3);
     });
-  } catch {}
+  } catch { }
 }
 
 // ============================================================

@@ -20,6 +20,7 @@ import {
   subscribeToOrders,
   subscribeToMenu,
   subscribeToTables,
+  subscribeToCategories,
   updateOrder,
 } from "../../utils/storage";
 import ItemForm from "./ItemForm";
@@ -51,6 +52,24 @@ export default function AdminDashboard({ user, onLogout }) {
   const [newCategoryName, setNewCategoryName] = useState("");
   const [orderVersion, setOrderVersion] = useState(0);
 
+  // Mark as paid function
+  const markPaid = (id) => {
+    console.log("markPaid: Starting for order:", id);
+    // Optimistically update local state
+    setOrders((prev) =>
+      prev.map((o) => (o.id === id ? { ...o, paymentStatus: "Paid" } : o)),
+    );
+    // Call update function
+    updateOrder(id, { paymentStatus: "Paid" })
+      .then(() => console.log("markPaid: Success for:", id))
+      .catch((error) => console.error("markPaid: Error:", error));
+  };
+
+  // Make function available globally for testing
+  window.testMarkPaid = markPaid;
+
+  console.log("AdminDashboard rendering, orders count:", orders.length);
+
   useEffect(() => {
     localStorage.setItem("rqs_darkmode", JSON.stringify(darkMode));
   }, [darkMode]);
@@ -78,10 +97,15 @@ export default function AdminDashboard({ user, onLogout }) {
       setTables(tables);
     });
 
+    const unsubCategories = subscribeToCategories((cats) => {
+      setCategories(cats);
+    });
+
     return () => {
       unsubOrders();
       unsubMenu();
       unsubTables();
+      unsubCategories();
     };
   }, []);
 
@@ -120,21 +144,6 @@ export default function AdminDashboard({ user, onLogout }) {
         table: order.table,
         orderId: id,
       });
-    }
-  };
-
-  const markPaid = async (id) => {
-    console.log("markPaid: Starting for order:", id);
-    // Optimistically update local state immediately
-    setOrders((prev) =>
-      prev.map((o) => (o.id === id ? { ...o, paymentStatus: "Paid" } : o)),
-    );
-    console.log("markPaid: Calling updateOrder for:", id);
-    try {
-      await updateOrder(id, { paymentStatus: "Paid" });
-      console.log("markPaid: updateOrder completed for:", id);
-    } catch (error) {
-      console.error("markPaid: Error:", error);
     }
   };
 
@@ -406,87 +415,87 @@ export default function AdminDashboard({ user, onLogout }) {
             {waiterCalls.filter(
               (w) => w.timestamp > Date.now() - 300000 && w.status !== "Served",
             ).length > 0 && (
-              <div
-                style={{
-                  background: "#ff9500" + "22",
-                  border: `1px solid ${"#ff9500"}`,
-                  borderRadius: "8px",
-                  padding: "10px",
-                  marginBottom: "12px",
-                  fontSize: "12px",
-                  color: "#ff9500",
-                  cursor: "pointer",
-                }}
-                onClick={() => setShowWaiterCalls(!showWaiterCalls)}
-              >
                 <div
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
+                    background: "#ff9500" + "22",
+                    border: `1px solid ${"#ff9500"}`,
+                    borderRadius: "8px",
+                    padding: "10px",
+                    marginBottom: "12px",
+                    fontSize: "12px",
+                    color: "#ff9500",
+                    cursor: "pointer",
                   }}
+                  onClick={() => setShowWaiterCalls(!showWaiterCalls)}
                 >
-                  <span>
-                    🔔{" "}
-                    {
-                      waiterCalls.filter(
-                        (w) =>
-                          w.timestamp > Date.now() - 300000 &&
-                          w.status !== "Served",
-                      ).length
-                    }{" "}
-                    waiter call(s)
-                  </span>
-                  <span>{showWaiterCalls ? "▲" : "▼"}</span>
-                </div>
-                {showWaiterCalls && (
                   <div
                     style={{
-                      marginTop: "8px",
-                      paddingTop: "8px",
-                      borderTop: "1px solid #ff9500",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
                     }}
                   >
-                    {waiterCalls
-                      .filter(
-                        (w) =>
-                          w.timestamp > Date.now() - 300000 &&
-                          w.status !== "Served",
-                      )
-                      .map((w) => (
-                        <div
-                          key={w.id}
-                          style={{
-                            padding: "4px 0",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                          }}
-                        >
-                          <span>Table {w.table}</span>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              updateOrder(w.id, { status: "Served" });
-                            }}
+                    <span>
+                      🔔{" "}
+                      {
+                        waiterCalls.filter(
+                          (w) =>
+                            w.timestamp > Date.now() - 300000 &&
+                            w.status !== "Served",
+                        ).length
+                      }{" "}
+                      waiter call(s)
+                    </span>
+                    <span>{showWaiterCalls ? "▲" : "▼"}</span>
+                  </div>
+                  {showWaiterCalls && (
+                    <div
+                      style={{
+                        marginTop: "8px",
+                        paddingTop: "8px",
+                        borderTop: "1px solid #ff9500",
+                      }}
+                    >
+                      {waiterCalls
+                        .filter(
+                          (w) =>
+                            w.timestamp > Date.now() - 300000 &&
+                            w.status !== "Served",
+                        )
+                        .map((w) => (
+                          <div
+                            key={w.id}
                             style={{
-                              background: "#ff9500",
-                              border: "none",
-                              color: "#fff",
-                              padding: "4px 8px",
-                              borderRadius: "4px",
-                              cursor: "pointer",
-                              fontSize: "10px",
+                              padding: "4px 0",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
                             }}
                           >
-                            Mark Served
-                          </button>
-                        </div>
-                      ))}
-                  </div>
-                )}
-              </div>
-            )}
+                            <span>Table {w.table}</span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                updateOrder(w.id, { status: "Served" });
+                              }}
+                              style={{
+                                background: "#ff9500",
+                                border: "none",
+                                color: "#fff",
+                                padding: "4px 8px",
+                                borderRadius: "4px",
+                                cursor: "pointer",
+                                fontSize: "10px",
+                              }}
+                            >
+                              Mark Served
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
             {/* Ready to Serve Orders */}
             {readyOrders.length > 0 && (
@@ -887,7 +896,7 @@ export default function AdminDashboard({ user, onLogout }) {
                             <option key={s}>{s}</option>
                           ))}
                         </select>
-                        {order.paymentStatus === "Unpaid" && (
+                        {order.paymentStatus !== "Paid" && (
                           <button
                             onClick={() => markPaid(order.id)}
                             style={{
@@ -1041,16 +1050,16 @@ export default function AdminDashboard({ user, onLogout }) {
                 {realOrders.filter((o) =>
                   ["Pending", "Confirmed", "Preparing"].includes(o.status),
                 ).length === 0 && (
-                  <div
-                    style={{
-                      color: muted,
-                      padding: "40px",
-                      textAlign: "center",
-                    }}
-                  >
-                    No active kitchen orders
-                  </div>
-                )}
+                    <div
+                      style={{
+                        color: muted,
+                        padding: "40px",
+                        textAlign: "center",
+                      }}
+                    >
+                      No active kitchen orders
+                    </div>
+                  )}
               </div>
             </div>
           )}
@@ -1262,7 +1271,7 @@ export default function AdminDashboard({ user, onLogout }) {
                                   }}
                                 >
                                   {item.image &&
-                                  item.image.startsWith("data:") ? (
+                                    item.image.startsWith("data:") ? (
                                     <img
                                       src={item.image}
                                       alt={item.name}

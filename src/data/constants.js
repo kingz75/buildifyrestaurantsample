@@ -813,9 +813,9 @@ export const STATUS_COLORS = {
 // ADMIN USERS
 // ============================================================
 export const ADMIN_USERS = [
-  { username: "owner", password: "owner123", role: "Owner" },
-  { username: "manager", password: "mgr123", role: "Manager" },
-  { username: "staff", password: "staff123", role: "Staff" },
+  { username: "owner", password: "123", role: "Owner" },
+  { username: "manager", password: "123", role: "Manager" },
+  { username: "staff", password: "123", role: "Staff" },
 ];
 
 // ============================================================

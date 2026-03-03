@@ -12,6 +12,7 @@ import {
   subscribeToOrders,
   subscribeToTables,
   addOrder,
+  updateOrder,
 } from "../../utils/storage";
 import TableSelect from "./TableSelect";
 import OrderStatus from "./OrderStatus";
@@ -217,24 +218,17 @@ export default function CustomerApp({ tableNumber: initialTable }) {
     lockOrder(order.id, "customer");
   };
 
-  const saveEditedOrder = () => {
+  const saveEditedOrder = async () => {
     if (!liveOrder || editingCart.length === 0) return;
-    const all = orders;
-    const updated = all.map((o) => {
-      if (o.id === liveOrder.id) {
-        return {
-          ...o,
-          items: editingCart,
-          total: editingCart.reduce((s, i) => s + i.price * i.qty, 0),
-        };
-      }
-      return o;
+    const updatedTotal = editingCart.reduce((s, i) => s + i.price * i.qty, 0);
+    await updateOrder(liveOrder.id, {
+      items: editingCart,
+      total: updatedTotal,
     });
-    saveOrders(updated);
     unlockOrder(liveOrder.id);
     setIsEditingOrder(false);
     setEditingCart([]);
-    setLiveOrder(updated.find((o) => o.id === liveOrder.id));
+    setLiveOrder({ ...liveOrder, items: editingCart, total: updatedTotal });
   };
 
   const cancelEditing = () => {
@@ -269,16 +263,15 @@ export default function CustomerApp({ tableNumber: initialTable }) {
     setPayingOrder(liveOrder);
   };
 
-  const callWaiter = () => {
-    const currentOrders = orders;
-    currentOrders.unshift({
+  const callWaiter = async () => {
+    const waiterCall = {
       id: generateId(),
       table,
       type: "waiter_call",
       timestamp: Date.now(),
       status: "Pending",
-    });
-    saveOrders(orders);
+    };
+    await addOrder(waiterCall);
     setWaiterCalled(true);
     setTimeout(() => setWaiterCalled(false), 5000);
   };
@@ -438,15 +431,9 @@ export default function CustomerApp({ tableNumber: initialTable }) {
       <PaymentView
         total={orderTotal}
         table={payingOrder.table}
-        onSuccess={() => {
-          const currentOrders = orders;
-          const updated = currentOrders.map((o) =>
-            o.id === payingOrder.id
-              ? { ...o, paymentStatus: "Paid", paymentMethod: "Card" }
-              : o,
-          );
-          saveOrders(updated);
-          setLiveOrder(updated.find((o) => o.id === payingOrder.id));
+        onSuccess={async () => {
+          await updateOrder(payingOrder.id, { paymentStatus: "Paid", paymentMethod: "Card" });
+          setLiveOrder({ ...payingOrder, paymentStatus: "Paid", paymentMethod: "Card" });
           setPayingOrder(null);
         }}
         onCancel={() => setPayingOrder(null)}
@@ -574,12 +561,12 @@ export default function CustomerApp({ tableNumber: initialTable }) {
         otherOrders={
           liveOrder
             ? tableOrders.filter(
-                (o) =>
-                  o.table === liveOrder.table &&
-                  o.id !== liveOrder.id &&
-                  o.items &&
-                  !["Completed", "Served"].includes(o.status),
-              )
+              (o) =>
+                o.table === liveOrder.table &&
+                o.id !== liveOrder.id &&
+                o.items &&
+                !["Completed", "Served"].includes(o.status),
+            )
             : []
         }
         onSelectOrder={(orderId) => {
@@ -718,9 +705,9 @@ export default function CustomerApp({ tableNumber: initialTable }) {
                 style={{
                   background:
                     liveOrder &&
-                    ["Pending", "Confirmed", "Preparing", "Ready"].includes(
-                      liveOrder.status,
-                    )
+                      ["Pending", "Confirmed", "Preparing", "Ready"].includes(
+                        liveOrder.status,
+                      )
                       ? "#22c55e"
                       : "#2d1200",
                   border: "1px solid #22c55e",
