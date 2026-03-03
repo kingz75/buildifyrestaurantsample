@@ -10,7 +10,6 @@ export default function TableSelect({ onSelect, tables = [] }) {
       setError("Please enter a table number");
       return;
     }
-    // Check if table exists and is active
     const validTable = tables.find((t) => t.id === tableNum && t.active);
     if (!validTable) {
       setError("Invalid or inactive table number");
@@ -24,12 +23,12 @@ export default function TableSelect({ onSelect, tables = [] }) {
     <div
       style={{
         fontFamily: "'Playfair Display', Georgia, serif",
-        background: "radial-gradient(circle at 50% 30%, #2d1200, #0d0d0d 70%)",
+        background: "#f8f9fa",
         minHeight: "100vh",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        color: "#f5f0e8",
+        color: "#1a1a1a",
       }}
     >
       <div
@@ -45,47 +44,49 @@ export default function TableSelect({ onSelect, tables = [] }) {
           style={{
             fontSize: "28px",
             fontWeight: "700",
-            color: "#e8b86d",
+            color: "#c17f2a",
             marginBottom: "8px",
           }}
         >
           Grand Table
         </div>
         <div
-          style={{ color: "#7a5c30", marginBottom: "32px", fontSize: "15px" }}
+          style={{ color: "#64748b", marginBottom: "32px", fontSize: "15px" }}
         >
           Fine Dining Experience
         </div>
         <div
           style={{
-            background: "#1a0a00",
-            border: "1px solid #2d1200",
+            background: "#ffffff",
+            border: "1px solid #e2e8f0",
             borderRadius: "16px",
             padding: "24px",
+            boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.05)",
           }}
         >
           <div
-            style={{ color: "#a07040", marginBottom: "12px", fontSize: "14px" }}
+            style={{ color: "#64748b", marginBottom: "12px", fontSize: "14px" }}
           >
             Enter your table number to begin
           </div>
           <input
             type="number"
-            placeholder="Table Number"
+            placeholder="0"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             style={{
               width: "100%",
-              background: "#0d0d0d",
-              border: error ? "1px solid #ef4444" : "1px solid #c17f2a",
-              color: "#e8b86d",
-              padding: "14px",
-              borderRadius: "8px",
-              fontSize: "24px",
+              background: "#f1f5f9",
+              border: error ? "2px solid #ef4444" : "1px solid #e2e8f0",
+              color: "#1a1a1a",
+              padding: "16px",
+              borderRadius: "12px",
+              fontSize: "32px",
               textAlign: "center",
               outline: "none",
               boxSizing: "border-box",
               fontFamily: "inherit",
+              fontWeight: "700",
             }}
           />
           {error && (
@@ -103,18 +104,19 @@ export default function TableSelect({ onSelect, tables = [] }) {
               background: "#c17f2a",
               border: "none",
               color: "#fff",
-              padding: "14px",
-              borderRadius: "8px",
+              padding: "16px",
+              borderRadius: "12px",
               fontSize: "16px",
               fontWeight: "700",
               cursor: "pointer",
               fontFamily: "inherit",
+              boxShadow: "0 4px 6px rgba(193, 127, 42, 0.2)",
             }}
           >
             Browse Menu →
           </button>
         </div>
-        <div style={{ marginTop: "20px", color: "#3d2200", fontSize: "12px" }}>
+        <div style={{ marginTop: "20px", color: "#94a3b8", fontSize: "12px" }}>
           Or scan the QR code on your table
         </div>
       </div>

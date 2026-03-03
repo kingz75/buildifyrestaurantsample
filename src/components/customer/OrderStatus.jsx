@@ -24,7 +24,7 @@ export default function OrderStatus({
   const [showOrderSelector, setShowOrderSelector] = useState(false);
   if (!order)
     return (
-      <div style={{ textAlign: "center", padding: "40px", color: "#7a5c30" }}>
+      <div style={{ textAlign: "center", padding: "40px", color: "#64748b" }}>
         Loading...
       </div>
     );
@@ -47,9 +47,9 @@ export default function OrderStatus({
     <div
       style={{
         fontFamily: "'Playfair Display', Georgia, serif",
-        background: "#0d0d0d",
+        background: "#f8f9fa",
         minHeight: "100vh",
-        color: "#f5f0e8",
+        color: "#1a1a1a",
         padding: "24px 16px",
       }}
     >
@@ -65,7 +65,7 @@ export default function OrderStatus({
                   : "⏳"}
           </div>
           <div
-            style={{ fontSize: "22px", fontWeight: "700", color: "#e8b86d" }}
+            style={{ fontSize: "22px", fontWeight: "700", color: "#c17f2a" }}
           >
             {isEditing
               ? "Editing Order"
@@ -73,7 +73,7 @@ export default function OrderStatus({
                 ? "Order Complete!"
                 : "Order Placed!"}
           </div>
-          <div style={{ color: "#7a5c30", marginTop: "4px" }}>
+          <div style={{ color: "#64748b", marginTop: "4px" }}>
             Table #{order.table} •{" "}
             {new Date(order.timestamp).toLocaleTimeString()}
           </div>
@@ -86,9 +86,9 @@ export default function OrderStatus({
               onClick={() => setShowOrderSelector(!showOrderSelector)}
               style={{
                 width: "100%",
-                background: "#2d1200",
-                border: "1px solid #4a2000",
-                color: "#e8b86d",
+                background: "#ffffff",
+                border: "1px solid #e2e8f0",
+                color: "#c17f2a",
                 padding: "12px",
                 borderRadius: "10px",
                 fontSize: "14px",
@@ -96,6 +96,7 @@ export default function OrderStatus({
                 alignItems: "center",
                 justifyContent: "space-between",
                 cursor: "pointer",
+                boxShadow: "0 2px 4px rgba(0,0,0,0.02)",
               }}
             >
               <span
@@ -119,17 +120,18 @@ export default function OrderStatus({
             {showOrderSelector && (
               <div
                 style={{
-                  background: "#1a0a00",
-                  border: "1px solid #2d1200",
+                  background: "#ffffff",
+                  border: "1px solid #e2e8f0",
                   borderRadius: "10px",
                   padding: "12px",
                   marginTop: "10px",
+                  boxShadow: "0 4px 6px rgba(0,0,0,0.05)",
                 }}
               >
                 <div
                   style={{
                     fontSize: "12px",
-                    color: "#a07040",
+                    color: "#64748b",
                     marginBottom: "10px",
                   }}
                 >
@@ -144,9 +146,9 @@ export default function OrderStatus({
                     }}
                     style={{
                       width: "100%",
-                      background: "#0d0d0d",
-                      border: "1px solid #2d1200",
-                      color: "#f5f0e8",
+                      background: "#f8f9fa",
+                      border: "1px solid #e2e8f0",
+                      color: "#1a1a1a",
                       padding: "10px",
                       borderRadius: "8px",
                       fontSize: "13px",
@@ -159,7 +161,7 @@ export default function OrderStatus({
                   >
                     <span>Order #{o.id.slice(-6)}</span>
                     <span
-                      style={{ color: STATUS_COLORS[o.status] || "#a07040" }}
+                      style={{ color: STATUS_COLORS[o.status] || "#64748b" }}
                     >
                       {o.status}
                     </span>
@@ -173,17 +175,18 @@ export default function OrderStatus({
         {!isEditing && (
           <div
             style={{
-              background: "#1a0a00",
-              border: "1px solid #2d1200",
+              background: "#ffffff",
+              border: "1px solid #e2e8f0",
               borderRadius: "16px",
               padding: "20px",
               marginBottom: "20px",
+              boxShadow: "0 2px 4px rgba(0,0,0,0.02)",
             }}
           >
             <div
               style={{
                 fontSize: "14px",
-                color: "#a07040",
+                color: "#64748b",
                 marginBottom: "16px",
               }}
             >
@@ -204,20 +207,21 @@ export default function OrderStatus({
                     width: "28px",
                     height: "28px",
                     borderRadius: "50%",
-                    background: i <= statusIndex ? STATUS_COLORS[s] : "#2d1200",
-                    border: `2px solid ${i <= statusIndex ? STATUS_COLORS[s] : "#3d2200"}`,
+                    background: i <= statusIndex ? STATUS_COLORS[s] : "#f1f5f9",
+                    border: `2px solid ${i <= statusIndex ? STATUS_COLORS[s] : "#e2e8f0"}`,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
                     fontSize: "12px",
                     flexShrink: 0,
+                    color: i <= statusIndex ? "#fff" : "#94a3b8",
                   }}
                 >
                   {i < statusIndex ? "✓" : i === statusIndex ? "●" : "○"}
                 </div>
                 <span
                   style={{
-                    color: i <= statusIndex ? "#f5f0e8" : "#3d2200",
+                    color: i <= statusIndex ? "#1a1a1a" : "#94a3b8",
                     fontWeight: i === statusIndex ? "700" : "400",
                   }}
                 >
@@ -226,13 +230,14 @@ export default function OrderStatus({
                 {i === statusIndex && (
                   <span
                     style={{
-                      background: STATUS_COLORS[s] + "33",
+                      background: STATUS_COLORS[s] + "11",
                       color: STATUS_COLORS[s],
-                      border: `1px solid ${STATUS_COLORS[s]}66`,
+                      border: `1px solid ${STATUS_COLORS[s]}33`,
                       borderRadius: "10px",
                       padding: "2px 8px",
                       fontSize: "11px",
                       marginLeft: "auto",
+                      fontWeight: "600",
                     }}
                   >
                     Current
@@ -246,17 +251,18 @@ export default function OrderStatus({
         {isEditing ? (
           <div
             style={{
-              background: "#1a0a00",
-              border: "1px solid #2d1200",
+              background: "#ffffff",
+              border: "1px solid #e2e8f0",
               borderRadius: "16px",
               padding: "20px",
               marginBottom: "20px",
+              boxShadow: "0 2px 4px rgba(0,0,0,0.02)",
             }}
           >
             <div
               style={{
                 fontSize: "14px",
-                color: "#a07040",
+                color: "#64748b",
                 marginBottom: "12px",
               }}
             >
@@ -272,25 +278,26 @@ export default function OrderStatus({
                   marginBottom: "8px",
                 }}
               >
-                <span style={{ color: "#c8b49c" }}>
+                <span style={{ color: "#475569" }}>
                   {item.qty}x {item.name}
                 </span>
                 <div
                   style={{ display: "flex", alignItems: "center", gap: "8px" }}
                 >
-                  <span style={{ color: "#c8b49c" }}>
+                  <span style={{ color: "#475569", fontWeight: "600" }}>
                     {fmt(item.price * item.qty)}
                   </span>
                   <button
                     onClick={() => onUpdateEditingQty(item.id, -1)}
                     style={{
-                      background: "#2d1200",
+                      background: "#f1f5f9",
                       border: "none",
-                      color: "#e8b86d",
-                      width: "24px",
-                      height: "24px",
-                      borderRadius: "4px",
+                      color: "#1a1a1a",
+                      width: "28px",
+                      height: "28px",
+                      borderRadius: "6px",
                       cursor: "pointer",
+                      fontWeight: "700",
                     }}
                   >
                     -
@@ -298,13 +305,14 @@ export default function OrderStatus({
                   <button
                     onClick={() => onUpdateEditingQty(item.id, 1)}
                     style={{
-                      background: "#2d1200",
+                      background: "#c17f2a",
                       border: "none",
-                      color: "#e8b86d",
-                      width: "24px",
-                      height: "24px",
-                      borderRadius: "4px",
+                      color: "#ffffff",
+                      width: "28px",
+                      height: "28px",
+                      borderRadius: "6px",
                       cursor: "pointer",
+                      fontWeight: "700",
                     }}
                   >
                     +
@@ -315,7 +323,7 @@ export default function OrderStatus({
             {editingCart.length === 0 && (
               <div
                 style={{
-                  color: "#7a5c30",
+                  color: "#94a3b8",
                   textAlign: "center",
                   padding: "20px",
                 }}
@@ -325,13 +333,14 @@ export default function OrderStatus({
             )}
             <div
               style={{
-                borderTop: "1px solid #2d1200",
+                borderTop: "1px solid #e2e8f0",
                 marginTop: "10px",
                 paddingTop: "10px",
                 display: "flex",
                 justifyContent: "space-between",
-                color: "#e8b86d",
+                color: "#c17f2a",
                 fontWeight: "700",
+                fontSize: "16px",
               }}
             >
               <span>New Total</span>
@@ -341,17 +350,18 @@ export default function OrderStatus({
         ) : (
           <div
             style={{
-              background: "#1a0a00",
-              border: "1px solid #2d1200",
+              background: "#ffffff",
+              border: "1px solid #e2e8f0",
               borderRadius: "16px",
               padding: "20px",
               marginBottom: "20px",
+              boxShadow: "0 2px 4px rgba(0,0,0,0.02)",
             }}
           >
             <div
               style={{
                 fontSize: "14px",
-                color: "#a07040",
+                color: "#64748b",
                 marginBottom: "12px",
               }}
             >
@@ -363,25 +373,27 @@ export default function OrderStatus({
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
-                  marginBottom: "6px",
-                  color: "#c8b49c",
+                  marginBottom: "8px",
+                  color: "#475569",
+                  fontSize: "14px",
                 }}
               >
                 <span>
                   {item.qty}x {item.name}
                 </span>
-                <span>{fmt(item.price * item.qty)}</span>
+                <span style={{ fontWeight: "600" }}>{fmt(item.price * item.qty)}</span>
               </div>
             ))}
             <div
               style={{
-                borderTop: "1px solid #2d1200",
+                borderTop: "1px solid #e2e8f0",
                 marginTop: "10px",
                 paddingTop: "10px",
                 display: "flex",
                 justifyContent: "space-between",
-                color: "#e8b86d",
+                color: "#c17f2a",
                 fontWeight: "700",
+                fontSize: "18px",
               }}
             >
               <span>Total</span>
@@ -389,19 +401,27 @@ export default function OrderStatus({
             </div>
             <div
               style={{
-                marginTop: "8px",
+                marginTop: "10px",
                 display: "flex",
                 justifyContent: "space-between",
+                alignItems: "center",
               }}
             >
-              <span style={{ color: "#7a5c30" }}>Payment</span>
+              <span style={{ color: "#64748b", fontSize: "13px" }}>Payment</span>
               <span
                 style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
                   color: order.paymentStatus === "Paid" ? "#22c55e" : "#f59e0b",
-                  fontWeight: "600",
+                  fontWeight: "700",
+                  fontSize: "14px",
+                  background: order.paymentStatus === "Paid" ? "#22c55e11" : "#f59e0b11",
+                  padding: "2px 8px",
+                  borderRadius: "6px",
                 }}
               >
-                {order.paymentStatus}
+                {order.paymentStatus === "Paid" ? "✓ Paid" : "⏳ Unpaid"}
               </span>
             </div>
           </div>
@@ -413,14 +433,15 @@ export default function OrderStatus({
               onClick={() => setShowAddMenu(true)}
               style={{
                 width: "100%",
-                background: "#2d1200",
-                border: "1px solid #c17f2a",
-                color: "#e8b86d",
-                padding: "12px",
-                borderRadius: "10px",
-                fontSize: "14px",
-                fontWeight: "600",
-                marginBottom: "10px",
+                background: "#ffffff",
+                border: "2px solid #c17f2a",
+                color: "#c17f2a",
+                padding: "14px",
+                borderRadius: "12px",
+                fontSize: "15px",
+                fontWeight: "700",
+                marginBottom: "12px",
+                cursor: "pointer",
               }}
             >
               + Add More Items
@@ -430,14 +451,16 @@ export default function OrderStatus({
               disabled={editingCart.length === 0}
               style={{
                 width: "100%",
-                background: editingCart.length > 0 ? "#c17f2a" : "#4a3020",
+                background: editingCart.length > 0 ? "#c17f2a" : "#cbd5e1",
                 border: "none",
                 color: "#fff",
-                padding: "14px",
-                borderRadius: "10px",
-                fontSize: "15px",
+                padding: "16px",
+                borderRadius: "12px",
+                fontSize: "16px",
                 fontWeight: "700",
-                marginBottom: "10px",
+                marginBottom: "12px",
+                cursor: "pointer",
+                boxShadow: editingCart.length > 0 ? "0 4px 6px rgba(193, 127, 42, 0.2)" : "none",
               }}
             >
               Save Changes
@@ -446,12 +469,14 @@ export default function OrderStatus({
               onClick={onCancelEdit}
               style={{
                 width: "100%",
-                background: "#1a0a00",
-                border: "1px solid #2d1200",
-                color: "#a07040",
+                background: "transparent",
+                border: "1px solid #e2e8f0",
+                color: "#64748b",
                 padding: "12px",
-                borderRadius: "10px",
+                borderRadius: "12px",
                 fontSize: "14px",
+                fontWeight: "600",
+                cursor: "pointer",
               }}
             >
               Cancel
@@ -465,12 +490,13 @@ export default function OrderStatus({
                 {hasMultipleUnpaid && (
                   <div
                     style={{
-                      background: payAllOrders ? "#22c55e11" : "#1a0a00",
-                      border: `1px solid ${payAllOrders ? "#22c55e44" : "#2d1200"}`,
-                      borderRadius: "12px",
-                      padding: "14px 16px",
-                      marginBottom: "12px",
+                      background: payAllOrders ? "#22c55e08" : "#ffffff",
+                      border: `2px solid ${payAllOrders ? "#22c55e44" : "#e2e8f0"}`,
+                      borderRadius: "16px",
+                      padding: "16px",
+                      marginBottom: "16px",
                       transition: "all 0.3s",
+                      boxShadow: "0 2px 4px rgba(0,0,0,0.02)",
                     }}
                   >
                     <div
@@ -483,20 +509,20 @@ export default function OrderStatus({
                       onClick={onTogglePayAll}
                     >
                       <div>
-                        <div style={{ color: "#e8b86d", fontWeight: "600", fontSize: "14px" }}>
+                        <div style={{ color: "#c17f2a", fontWeight: "700", fontSize: "15px" }}>
                           Pay for all orders
                         </div>
-                        <div style={{ color: "#7a5c30", fontSize: "12px", marginTop: "2px" }}>
-                          {unpaidTableOrders.length} unpaid orders on Table #{order.table}
+                        <div style={{ color: "#64748b", fontSize: "12px", marginTop: "2px" }}>
+                          {unpaidTableOrders.length} unpaid orders for Table #{order.table}
                         </div>
                       </div>
                       {/* Toggle Switch */}
                       <div
                         style={{
-                          width: "44px",
-                          height: "24px",
-                          borderRadius: "12px",
-                          background: payAllOrders ? "#22c55e" : "#3d2200",
+                          width: "48px",
+                          height: "26px",
+                          borderRadius: "13px",
+                          background: payAllOrders ? "#22c55e" : "#e2e8f0",
                           position: "relative",
                           transition: "background 0.3s",
                           flexShrink: 0,
@@ -504,15 +530,15 @@ export default function OrderStatus({
                       >
                         <div
                           style={{
-                            width: "20px",
-                            height: "20px",
+                            width: "22px",
+                            height: "22px",
                             borderRadius: "50%",
-                            background: "#fff",
+                            background: "#ffffff",
                             position: "absolute",
                             top: "2px",
-                            left: payAllOrders ? "22px" : "2px",
+                            left: payAllOrders ? "24px" : "2px",
                             transition: "left 0.3s",
-                            boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                            boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
                           }}
                         />
                       </div>
@@ -520,14 +546,14 @@ export default function OrderStatus({
                     {payAllOrders && (
                       <div
                         style={{
-                          marginTop: "10px",
-                          paddingTop: "10px",
-                          borderTop: "1px solid #2d1200",
+                          marginTop: "12px",
+                          paddingTop: "12px",
+                          borderTop: "1px solid #e2e8f0",
                           display: "flex",
                           justifyContent: "space-between",
                           color: "#22c55e",
-                          fontWeight: "700",
-                          fontSize: "15px",
+                          fontWeight: "800",
+                          fontSize: "16px",
                         }}
                       >
                         <span>Combined Total</span>
@@ -543,11 +569,13 @@ export default function OrderStatus({
                     background: "#22c55e",
                     border: "none",
                     color: "#fff",
-                    padding: "14px",
-                    borderRadius: "10px",
-                    fontSize: "15px",
-                    fontWeight: "700",
-                    marginBottom: "10px",
+                    padding: "16px",
+                    borderRadius: "12px",
+                    fontSize: "16px",
+                    fontWeight: "800",
+                    marginBottom: "12px",
+                    cursor: "pointer",
+                    boxShadow: "0 4px 6px rgba(34, 197, 94, 0.2)",
                   }}
                 >
                   💳 {payAllOrders ? `Pay All ${fmt(allUnpaidTotal)}` : "Pay Now"}
@@ -560,17 +588,18 @@ export default function OrderStatus({
                     onClick={() => onNewOrder(true)}
                     style={{
                       width: "100%",
-                      background: "#2d1200",
-                      border: "1px solid #c17f2a",
-                      color: "#e8b86d",
+                      background: "#ffffff",
+                      border: "2px solid #c17f2a",
+                      color: "#c17f2a",
                       padding: "14px",
-                      borderRadius: "10px",
+                      borderRadius: "12px",
                       fontSize: "15px",
                       fontWeight: "700",
-                      marginBottom: "10px",
+                      marginBottom: "12px",
+                      cursor: "pointer",
                     }}
                   >
-                    Edit Order
+                    ✏️ Edit Order
                   </button>
                 )}
               </>
@@ -582,11 +611,13 @@ export default function OrderStatus({
                 background: "#c17f2a",
                 border: "none",
                 color: "#fff",
-                padding: "14px",
-                borderRadius: "10px",
-                fontSize: "15px",
+                padding: "16px",
+                borderRadius: "12px",
+                fontSize: "16px",
                 fontWeight: "700",
-                marginBottom: "10px",
+                marginBottom: "12px",
+                cursor: "pointer",
+                boxShadow: "0 4px 6px rgba(193, 127, 42, 0.2)",
               }}
             >
               + Add More Items
@@ -595,12 +626,14 @@ export default function OrderStatus({
               onClick={onBack}
               style={{
                 width: "100%",
-                background: "#1a0a00",
-                border: "1px solid #2d1200",
-                color: "#a07040",
+                background: "transparent",
+                border: "1px solid #e2e8f0",
+                color: "#64748b",
                 padding: "12px",
-                borderRadius: "10px",
+                borderRadius: "12px",
                 fontSize: "14px",
+                fontWeight: "600",
+                cursor: "pointer",
               }}
             >
               Back to Menu
@@ -608,6 +641,7 @@ export default function OrderStatus({
           </div>
         )}
       </div>
+
       {/* Add Items Modal */}
       {showAddMenu && menuItems && (
         <div
@@ -617,10 +651,11 @@ export default function OrderStatus({
             left: 0,
             right: 0,
             bottom: 0,
-            background: "rgba(0,0,0,0.9)",
+            background: "rgba(255,255,255,0.95)",
             zIndex: 1000,
             overflowY: "auto",
             padding: "20px",
+            backdropFilter: "blur(4px)",
           }}
         >
           <div style={{ maxWidth: "400px", margin: "0 auto" }}>
@@ -629,18 +664,25 @@ export default function OrderStatus({
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
-                marginBottom: "20px",
+                marginBottom: "24px",
+                paddingTop: "20px",
               }}
             >
-              <h3 style={{ color: "#e8b86d", margin: 0 }}>Add Items</h3>
+              <h3 style={{ color: "#1a1a1a", margin: 0, fontSize: "20px" }}>Add Items</h3>
               <button
                 onClick={() => setShowAddMenu(false)}
                 style={{
-                  background: "none",
+                  background: "#f1f5f9",
                   border: "none",
-                  color: "#e8b86d",
-                  fontSize: "24px",
+                  color: "#64748b",
+                  width: "32px",
+                  height: "32px",
+                  borderRadius: "50%",
+                  fontSize: "20px",
                   cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
                 }}
               >
                 ×
@@ -654,33 +696,34 @@ export default function OrderStatus({
                   <div
                     key={item.id}
                     style={{
-                      background: "#1a0a00",
-                      border: "1px solid #3d2010",
-                      borderRadius: "10px",
-                      padding: "12px",
-                      marginBottom: "10px",
+                      background: "#ffffff",
+                      border: "1px solid #e2e8f0",
+                      borderRadius: "12px",
+                      padding: "16px",
+                      marginBottom: "12px",
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
+                      boxShadow: "0 2px 4px rgba(0,0,0,0.02)",
                     }}
                   >
                     <div style={{ flex: 1 }}>
-                      <div style={{ color: "#e8b86d", fontWeight: "600" }}>
+                      <div style={{ color: "#1a1a1a", fontWeight: "700" }}>
                         {item.name}
                       </div>
-                      <div style={{ color: "#a07020", fontSize: "13px" }}>
-                        ₦{item.price?.toLocaleString()}
+                      <div style={{ color: "#c17f2a", fontSize: "14px", fontWeight: "600", marginTop: "2px" }}>
+                        {fmt(item.price)}
                       </div>
                     </div>
                     <div
                       style={{
                         display: "flex",
                         alignItems: "center",
-                        gap: "8px",
+                        gap: "12px",
                       }}
                     >
                       {inCart && (
-                        <span style={{ color: "#c17f2a", fontSize: "12px" }}>
+                        <span style={{ color: "#22c55e", fontSize: "12px", fontWeight: "700" }}>
                           {inCart.qty} in order
                         </span>
                       )}
@@ -694,8 +737,9 @@ export default function OrderStatus({
                           color: "#fff",
                           padding: "8px 16px",
                           borderRadius: "8px",
-                          fontWeight: "600",
+                          fontWeight: "700",
                           cursor: "pointer",
+                          fontSize: "13px",
                         }}
                       >
                         + Add
@@ -708,15 +752,16 @@ export default function OrderStatus({
               onClick={() => setShowAddMenu(false)}
               style={{
                 width: "100%",
-                background: "#2d1200",
-                border: "1px solid #c17f2a",
-                color: "#e8b86d",
-                padding: "14px",
-                borderRadius: "10px",
-                fontSize: "15px",
-                fontWeight: "600",
-                marginTop: "20px",
+                background: "#1a1a1a",
+                border: "none",
+                color: "#ffffff",
+                padding: "16px",
+                borderRadius: "12px",
+                fontSize: "16px",
+                fontWeight: "700",
+                marginTop: "24px",
                 cursor: "pointer",
+                boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
               }}
             >
               Done Adding

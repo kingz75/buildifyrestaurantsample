@@ -52,6 +52,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
   const [tables, setTables] = useState(getTables);
   const [tableOrders, setTableOrders] = useState([]); // multiple active orders for current table
   const [orders, setOrders] = useState([]); // all orders from Firebase
+  const [selectedTag, setSelectedTag] = useState(null);
   const [isRestored, setIsRestored] = useState(false); // Track if we've restored state
 
   // Restore order from localStorage on mount
@@ -325,6 +326,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
     (m) =>
       m.available &&
       (category === "All" || m.category === category) &&
+      (!selectedTag || (m.tags && m.tags.includes(selectedTag))) &&
       (search === "" || m.name.toLowerCase().includes(search.toLowerCase())),
   );
 
@@ -482,10 +484,15 @@ export default function CustomerApp({ tableNumber: initialTable }) {
       0,
     );
     const payTotal = payAllOrders ? allTotal : singleTotal;
+    const itemsForReceipt = payAllOrders
+      ? unpaidTableOrders.flatMap(o => o.items)
+      : payingOrder.items;
+
     return (
       <PaymentView
         total={payTotal}
         table={payingOrder.table}
+        orderItems={itemsForReceipt}
         onSuccess={async () => {
           if (payAllOrders) {
             // Mark all unpaid orders on this table as Paid
@@ -656,6 +663,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
       <PaymentView
         total={discountedTotal}
         table={table}
+        orderItems={cart}
         onSuccess={() => placeOrder(true)}
         onCancel={() => setPayMode(null)}
       />
@@ -670,9 +678,9 @@ export default function CustomerApp({ tableNumber: initialTable }) {
     <div
       style={{
         fontFamily: "'Playfair Display', Georgia, serif",
-        background: "#0d0d0d",
+        background: "#f8f9fa",
         minHeight: "100vh",
-        color: "#f5f0e8",
+        color: "#1a1a1a",
         maxWidth: "480px",
         margin: "0 auto",
         position: "relative",
@@ -682,9 +690,9 @@ export default function CustomerApp({ tableNumber: initialTable }) {
       <div
         style={{
           background:
-            "linear-gradient(135deg, #1a0a00 0%, #2d1200 50%, #1a0a00 100%)",
+            "linear-gradient(135deg, #c17f2a 0%, #e8b86d 100%)",
           padding: "20px 16px 16px",
-          borderBottom: "2px solid #c17f2a",
+          borderBottom: "2px solid #a07040",
           position: "sticky",
           top: 0,
           zIndex: 100,
@@ -702,14 +710,14 @@ export default function CustomerApp({ tableNumber: initialTable }) {
               style={{
                 fontSize: "22px",
                 fontWeight: "700",
-                color: "#e8b86d",
+                color: "#ffffff",
                 letterSpacing: "0.5px",
               }}
             >
               🍽️ Grand Table
             </div>
             <div
-              style={{ fontSize: "12px", color: "#a07040", marginTop: "2px" }}
+              style={{ fontSize: "12px", color: "rgba(255,255,255,0.8)", marginTop: "2px" }}
             >
               Table #{table} • Fine Dining
             </div>
@@ -839,14 +847,15 @@ export default function CustomerApp({ tableNumber: initialTable }) {
           style={{
             width: "100%",
             marginTop: "12px",
-            background: "#1a0a00",
-            border: "1px solid #3d2200",
-            color: "#f5f0e8",
+            background: "#ffffff",
+            border: "1px solid #e2e8f0",
+            color: "#1a1a1a",
             padding: "10px 14px",
             borderRadius: "24px",
             fontSize: "14px",
             outline: "none",
             boxSizing: "border-box",
+            boxShadow: "0 2px 4px rgba(0,0,0,0.05)",
           }}
         />
       </div>
@@ -867,9 +876,9 @@ export default function CustomerApp({ tableNumber: initialTable }) {
             key={cat}
             onClick={() => setCategory(cat)}
             style={{
-              background: category === cat ? "#c17f2a" : "#1a0a00",
-              color: category === cat ? "#fff" : "#a07040",
-              border: `1px solid ${category === cat ? "#c17f2a" : "#2d1200"}`,
+              background: category === cat ? "#c17f2a" : "#ffffff",
+              color: category === cat ? "#fff" : "#1a1a1a",
+              border: `1px solid ${category === cat ? "#c17f2a" : "#e2e8f0"}`,
               padding: "6px 14px",
               borderRadius: "20px",
               fontSize: "12px",
@@ -877,12 +886,47 @@ export default function CustomerApp({ tableNumber: initialTable }) {
               cursor: "pointer",
               transition: "all 0.2s",
               fontFamily: "inherit",
+              boxShadow: "0 2px 4px rgba(0,0,0,0.02)",
             }}
           >
             {cat}
           </button>
         ))}
       </div>
+
+      {/* Tag Filtering UI */}
+      {selectedTag && (
+        <div style={{ padding: "0 16px", marginTop: "8px" }}>
+          <div
+            style={{
+              background: "#c17f2a11",
+              border: "1px solid #c17f2a33",
+              borderRadius: "8px",
+              padding: "8px 12px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <span style={{ fontSize: "13px", color: "#c17f2a", fontWeight: "600" }}>
+              Filter: {selectedTag}
+            </span>
+            <button
+              onClick={() => setSelectedTag(null)}
+              style={{
+                background: "none",
+                border: "none",
+                color: "#c17f2a",
+                cursor: "pointer",
+                fontSize: "12px",
+                fontWeight: "700",
+              }}
+            >
+              ✕ Clear
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Menu Items */}
       <div style={{ padding: "16px", paddingBottom: "100px" }}>
@@ -916,6 +960,8 @@ export default function CustomerApp({ tableNumber: initialTable }) {
                       inCart={inCart}
                       onAddToCart={addToCart}
                       onUpdateQty={updateQty}
+                      selectedTag={selectedTag}
+                      onTagClick={(tag) => setSelectedTag(tag === selectedTag ? null : tag)}
                     />
                   );
                 })}

@@ -1,24 +1,33 @@
 import { TAG_COLORS } from "../../data/constants";
 import { fmt } from "../../utils/storage";
 
-export default function MenuItem({ item, inCart, onAddToCart, onUpdateQty }) {
+export default function MenuItem({
+  item,
+  inCart,
+  onAddToCart,
+  onUpdateQty,
+  selectedTag,
+  onTagClick
+}) {
+  const hasImage = item?.image && String(item.image).length > 5;
+
   return (
     <div
       style={{
-        background: "#1a0a00",
-        border: "1px solid #2d1200",
+        background: "#ffffff",
+        border: "1px solid #e2e8f0",
         borderRadius: "12px",
-        marginBottom: "10px",
+        marginBottom: "12px",
         overflow: "hidden",
         display: "flex",
-        gap: "0",
+        boxShadow: "0 2px 4px rgba(0,0,0,0.02)",
       }}
     >
       <div
         style={{
-          width: "90px",
-          minHeight: "90px",
-          background: "#2d1200",
+          width: "100px",
+          minHeight: "100px",
+          background: "#f1f5f9",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -27,106 +36,118 @@ export default function MenuItem({ item, inCart, onAddToCart, onUpdateQty }) {
           overflow: "hidden",
         }}
       >
-        {item.image && item.image.startsWith("data:") ? (
+        {item?.image && String(item.image).startsWith("data:") ? (
           <img
             src={item.image}
             alt={item.name}
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
           />
         ) : (
-          item.image
+          item?.image || "🍽️"
         )}
       </div>
-      <div style={{ padding: "10px 12px", flex: 1 }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "start",
-          }}
-        >
+      <div style={{ padding: "12px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+        <div>
           <div
             style={{
-              fontWeight: "600",
-              fontSize: "14px",
-              color: "#f5f0e8",
-              lineHeight: "1.3",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "start",
             }}
           >
-            {item.name}
+            <div
+              style={{
+                fontWeight: "600",
+                fontSize: "14px",
+                color: "#1a1a1a",
+                lineHeight: "1.3",
+              }}
+            >
+              {item.name}
+            </div>
+            <div
+              style={{
+                color: "#c17f2a",
+                fontWeight: "700",
+                fontSize: "14px",
+                whiteSpace: "nowrap",
+                marginLeft: "8px",
+              }}
+            >
+              {fmt(item.price)}
+            </div>
           </div>
           <div
             style={{
-              color: "#e8b86d",
-              fontWeight: "700",
-              fontSize: "14px",
-              whiteSpace: "nowrap",
-              marginLeft: "8px",
+              fontSize: "12px",
+              color: "#64748b",
+              marginTop: "4px",
+              lineHeight: "1.4",
             }}
           >
-            {fmt(item.price)}
+            {item.desc}
           </div>
         </div>
-        <div
-          style={{
-            fontSize: "11px",
-            color: "#7a5c30",
-            marginTop: "4px",
-            lineHeight: "1.4",
-          }}
-        >
-          {item.desc}
-        </div>
+
         <div
           style={{
             display: "flex",
             gap: "4px",
-            marginTop: "6px",
+            marginTop: "8px",
             flexWrap: "wrap",
             alignItems: "center",
             justifyContent: "space-between",
           }}
         >
           <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-            {item.tags.map((t) => (
-              <span
+            {item.tags?.map((t) => (
+              <button
                 key={t}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTagClick && onTagClick(t);
+                }}
                 style={{
-                  background: TAG_COLORS[t] + "22",
-                  color: TAG_COLORS[t],
-                  border: `1px solid ${TAG_COLORS[t]}44`,
+                  background: selectedTag === t ? TAG_COLORS[t] : TAG_COLORS[t] + "11",
+                  color: selectedTag === t ? "#fff" : TAG_COLORS[t],
+                  border: `1px solid ${selectedTag === t ? "transparent" : TAG_COLORS[t] + "44"}`,
                   borderRadius: "10px",
-                  padding: "1px 6px",
+                  padding: "2px 8px",
                   fontSize: "10px",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  transition: "all 0.2s",
                 }}
               >
                 {t}
-              </span>
+              </button>
             ))}
           </div>
+
           {inCart ? (
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
               <button
                 onClick={() => onUpdateQty(item.id, -1)}
                 style={{
-                  background: "#c17f2a",
-                  border: "none",
-                  color: "#fff",
-                  width: "24px",
-                  height: "24px",
+                  background: "#f1f5f9",
+                  border: "1px solid #e2e8f0",
+                  color: "#1a1a1a",
+                  width: "28px",
+                  height: "28px",
                   borderRadius: "50%",
                   cursor: "pointer",
-                  fontSize: "14px",
+                  fontSize: "16px",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
+                  fontWeight: "600",
                 }}
               >
                 -
               </button>
               <span
                 style={{
-                  color: "#e8b86d",
+                  color: "#1a1a1a",
                   fontWeight: "700",
                   fontSize: "14px",
                   minWidth: "20px",
@@ -141,14 +162,15 @@ export default function MenuItem({ item, inCart, onAddToCart, onUpdateQty }) {
                   background: "#c17f2a",
                   border: "none",
                   color: "#fff",
-                  width: "24px",
-                  height: "24px",
+                  width: "28px",
+                  height: "28px",
                   borderRadius: "50%",
                   cursor: "pointer",
-                  fontSize: "14px",
+                  fontSize: "16px",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
+                  fontWeight: "600",
                 }}
               >
                 +
@@ -161,11 +183,13 @@ export default function MenuItem({ item, inCart, onAddToCart, onUpdateQty }) {
                 background: "#c17f2a",
                 border: "none",
                 color: "#fff",
-                padding: "5px 14px",
+                padding: "6px 16px",
                 borderRadius: "20px",
                 fontSize: "12px",
+                fontWeight: "600",
                 cursor: "pointer",
                 fontFamily: "inherit",
+                boxShadow: "0 2px 4px rgba(193, 127, 42, 0.2)",
               }}
             >
               Add +

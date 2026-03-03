@@ -11,6 +11,7 @@ import {
 
 export default function KitchenView() {
   const [orders, setOrders] = useState([]);
+  const [darkMode, setDarkMode] = useState(false);
   const activeStatuses = ["Confirmed", "Preparing"];
 
   useEffect(() => {
@@ -24,12 +25,10 @@ export default function KitchenView() {
   }, []);
 
   const advance = async (id) => {
-    // Get current orders state
     const all = orders;
     const order = all.find((o) => o.id === id);
     const oldStatus = order?.status;
 
-    // Check if order is being edited by customer
     const lock = getOrderLock(id);
     if (lock && lock.userType === "customer") {
       alert("Cannot update: Customer is currently editing this order");
@@ -40,10 +39,8 @@ export default function KitchenView() {
     const newStatus =
       ORDER_STATUSES[Math.min(i + 1, ORDER_STATUSES.length - 1)];
 
-    // Update in Firebase
     await updateOrder(id, { status: newStatus });
 
-    // Save notification for status change
     if (oldStatus !== newStatus) {
       saveNotification({
         type: "kitchen_status",
@@ -55,14 +52,21 @@ export default function KitchenView() {
     }
   };
 
+  const bg = darkMode ? "#0d0d0d" : "#f3f4f6";
+  const surface = darkMode ? "#1a1a1a" : "#ffffff";
+  const text = darkMode ? "#f5f0e8" : "#1a1a1a";
+  const muted = darkMode ? "#888888" : "#666666";
+  const border = darkMode ? "#333" : "#e2e8f0";
+
   return (
     <div
       style={{
         fontFamily: "'DM Mono', 'Courier New', monospace",
-        background: "#0a0a0a",
+        background: bg,
         minHeight: "100vh",
-        color: "#e0e0e0",
+        color: text,
         padding: "20px",
+        transition: "background 0.3s, color 0.3s",
       }}
     >
       <div
@@ -71,7 +75,7 @@ export default function KitchenView() {
           alignItems: "center",
           justifyContent: "space-between",
           marginBottom: "24px",
-          borderBottom: "2px solid #333",
+          borderBottom: `2px solid ${border}`,
           paddingBottom: "16px",
         }}
       >
@@ -81,29 +85,50 @@ export default function KitchenView() {
           >
             🔥 Kitchen Display
           </div>
-          <div style={{ fontSize: "12px", color: "#666", marginTop: "2px" }}>
+          <div style={{ fontSize: "12px", color: muted, marginTop: "2px" }}>
             Live Orders • Auto-refreshes
           </div>
         </div>
-        <div
-          style={{
-            background: "#ff950022",
-            border: "1px solid #ff9500",
-            color: "#ff9500",
-            padding: "8px 14px",
-            borderRadius: "8px",
-            fontSize: "12px",
-          }}
-        >
-          {orders.length} Active Orders
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <button
+            onClick={() => setDarkMode(!darkMode)}
+            style={{
+              background: surface,
+              border: `1px solid ${border}`,
+              color: text,
+              padding: "8px 12px",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontSize: "14px",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+            }}
+          >
+            {darkMode ? "☀️ Light" : "🌙 Dark"}
+          </button>
+          <div
+            style={{
+              background: "#ff950022",
+              border: "1px solid #ff9500",
+              color: "#ff9500",
+              padding: "8px 14px",
+              borderRadius: "8px",
+              fontSize: "12px",
+              fontWeight: "700",
+            }}
+          >
+            {orders.length} Active Orders
+          </div>
         </div>
       </div>
+
       {orders.length === 0 ? (
         <div
           style={{
             textAlign: "center",
             padding: "60px",
-            color: "#444",
+            color: muted,
             fontSize: "18px",
           }}
         >
@@ -121,10 +146,11 @@ export default function KitchenView() {
             <div
               key={order.id}
               style={{
-                background: "#111",
+                background: surface,
                 border: `2px solid ${STATUS_COLORS[order.status]}`,
                 borderRadius: "12px",
                 padding: "16px",
+                boxShadow: "0 4px 6px rgba(0,0,0,0.05)",
               }}
             >
               <div
@@ -158,7 +184,7 @@ export default function KitchenView() {
               </div>
               <div
                 style={{
-                  color: "#666",
+                  color: muted,
                   fontSize: "11px",
                   marginBottom: "10px",
                 }}
@@ -184,7 +210,7 @@ export default function KitchenView() {
                   >
                     ×{item.qty}
                   </span>
-                  <span style={{ color: "#e0e0e0" }}>{item.name}</span>
+                  <span style={{ color: text }}>{item.name}</span>
                 </div>
               ))}
               {order.specialInstructions && (
@@ -196,7 +222,7 @@ export default function KitchenView() {
                     borderRadius: "6px",
                     padding: "8px",
                     fontSize: "12px",
-                    color: "#ffbb66",
+                    color: darkMode ? "#ffbb66" : "#af6600",
                   }}
                 >
                   📝 {order.specialInstructions}
@@ -220,10 +246,10 @@ export default function KitchenView() {
                 Mark as{" "}
                 {
                   ORDER_STATUSES[
-                    Math.min(
-                      ORDER_STATUSES.indexOf(order.status) + 1,
-                      ORDER_STATUSES.length - 1,
-                    )
+                  Math.min(
+                    ORDER_STATUSES.indexOf(order.status) + 1,
+                    ORDER_STATUSES.length - 1,
+                  )
                   ]
                 }{" "}
                 →
@@ -235,3 +261,4 @@ export default function KitchenView() {
     </div>
   );
 }
+
