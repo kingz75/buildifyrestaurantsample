@@ -19,6 +19,7 @@ export default function OrderStatus({
   payAllOrders = false,
   onTogglePayAll,
   unpaidTableOrders = [],
+  allUnpaidTotal,
 }) {
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showOrderSelector, setShowOrderSelector] = useState(false);
@@ -29,17 +30,17 @@ export default function OrderStatus({
       </div>
     );
   const statusIndex = ORDER_STATUSES.indexOf(order.status);
-  const canEdit = !["Confirmed", "Preparing", "Served", "Completed"].includes(
-    order.status,
-  );
+  const canEdit =
+    order.paymentStatus !== "Paid" &&
+    !["Confirmed", "Preparing", "Served", "Completed"].includes(order.status);
   const isUnpaid = order.paymentStatus === "Unpaid";
   const showPayNow =
     isUnpaid && ["Confirmed", "Preparing", "Ready"].includes(order.status);
   const hasMultipleUnpaid = unpaidTableOrders.length > 1;
-  const allUnpaidTotal = unpaidTableOrders.reduce(
-    (s, o) => s + o.items.reduce((sum, i) => sum + i.price * i.qty, 0),
-    0,
-  );
+  const combinedUnpaidTotal =
+    typeof allUnpaidTotal === "number"
+      ? allUnpaidTotal
+      : unpaidTableOrders.reduce((s, o) => s + Number(o.total || 0), 0);
   const editingTotal =
     editingCart?.reduce((s, i) => s + i.price * i.qty, 0) || 0;
 
@@ -557,7 +558,7 @@ export default function OrderStatus({
                         }}
                       >
                         <span>Combined Total</span>
-                        <span>{fmt(allUnpaidTotal)}</span>
+                        <span>{fmt(combinedUnpaidTotal)}</span>
                       </div>
                     )}
                   </div>
@@ -578,7 +579,7 @@ export default function OrderStatus({
                     boxShadow: "0 4px 6px rgba(34, 197, 94, 0.2)",
                   }}
                 >
-                  💳 {payAllOrders ? `Pay All ${fmt(allUnpaidTotal)}` : "Pay Now"}
+                  💳 {payAllOrders ? `Pay All ${fmt(combinedUnpaidTotal)}` : "Pay Now"}
                 </button>
               </>
             ) : (

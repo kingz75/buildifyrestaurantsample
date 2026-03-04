@@ -1,8 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { QRCodeSVG } from "qrcode.react";
+import { useState, useEffect, useRef } from "react";
 import { ORDER_STATUSES, STATUS_COLORS } from "../../data/constants";
 import {
-  getOrders,
   getMenuItems,
   saveMenu,
   getTables,
@@ -11,7 +9,6 @@ import {
   saveCategories,
   fmt,
   timeAgo,
-  playNotificationSound,
   getNotifications,
   markNotificationRead,
   clearNotifications,
@@ -21,12 +18,51 @@ import {
   subscribeToMenu,
   subscribeToTables,
   subscribeToCategories,
+  getBillingSettings,
+  saveBillingSettings,
+  subscribeToBillingSettings,
   updateOrder,
 } from "../../utils/storage";
 import ItemForm from "./ItemForm";
 import QRCodesTab from "./QRCodesTab";
+import { getOrderBreakdown } from "../../utils/billing";
+import AnalyticsTab from "./dashboard/AnalyticsTab";
+import BillingConfigTab from "./dashboard/BillingConfigTab";
+import {
+  markOrderAsPaid,
+  openInvoiceWindow,
+  updateOrderStatusWithGuard,
+} from "./dashboard/orderActions";
 
 export default function AdminDashboard({ user, onLogout }) {
+  const toBillingDraft = (settings = {}) => ({
+    serviceChargeAmount:
+      Number(settings.serviceChargeAmount || 0) === 0
+        ? ""
+        : String(settings.serviceChargeAmount),
+    serviceChargePercent:
+      Number(settings.serviceChargePercent || 0) === 0
+        ? ""
+        : String(settings.serviceChargePercent),
+    vatAmount:
+      Number(settings.vatAmount || 0) === 0 ? "" : String(settings.vatAmount),
+    vatPercent:
+      Number(settings.vatPercent || 0) === 0 ? "" : String(settings.vatPercent),
+    taxAmount:
+      Number(settings.taxAmount || 0) === 0 ? "" : String(settings.taxAmount),
+    taxPercent:
+      Number(settings.taxPercent || 0) === 0 ? "" : String(settings.taxPercent),
+  });
+
+  const toBillingPayload = (draft = {}) => ({
+    serviceChargeAmount: Number(draft.serviceChargeAmount || 0),
+    serviceChargePercent: Number(draft.serviceChargePercent || 0),
+    vatAmount: Number(draft.vatAmount || 0),
+    vatPercent: Number(draft.vatPercent || 0),
+    taxAmount: Number(draft.taxAmount || 0),
+    taxPercent: Number(draft.taxPercent || 0),
+  });
+
   const [tab, setTab] = useState("orders");
   const [orders, setOrders] = useState([]);
   const [menuItems, setMenuItems] = useState(getMenuItems);
@@ -51,16 +87,16 @@ export default function AdminDashboard({ user, onLogout }) {
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [orderVersion, setOrderVersion] = useState(0);
+  const [billingSettings, setBillingSettings] = useState(getBillingSettings);
+  const [billingDraft, setBillingDraft] = useState(() =>
+    toBillingDraft(getBillingSettings()),
+  );
+  const [savingBillingSettings, setSavingBillingSettings] = useState(false);
 
   // Mark as paid function
   const markPaid = (id) => {
     console.log("markPaid: Starting for order:", id);
-    // Optimistically update local state
-    setOrders((prev) =>
-      prev.map((o) => (o.id === id ? { ...o, paymentStatus: "Paid" } : o)),
-    );
-    // Call update function
-    updateOrder(id, { paymentStatus: "Paid" })
+    markOrderAsPaid(id, setOrders, updateOrder)
       .then(() => console.log("markPaid: Success for:", id))
       .catch((error) => console.error("markPaid: Error:", error));
   };
@@ -81,6 +117,14 @@ export default function AdminDashboard({ user, onLogout }) {
     window.addEventListener("rqs_notification", loadNotifications);
     return () =>
       window.removeEventListener("rqs_notification", loadNotifications);
+  }, []);
+
+  useEffect(() => {
+    const unsubBillingSettings = subscribeToBillingSettings((settings) => {
+      setBillingSettings(settings);
+      setBillingDraft(toBillingDraft(settings));
+    });
+    return () => unsubBillingSettings();
   }, []);
 
   // Subscribe to orders
@@ -123,28 +167,14 @@ export default function AdminDashboard({ user, onLogout }) {
   };
 
   const updateOrderStatus = async (id, status) => {
-    const order = orders.find((o) => o.id === id);
-    const oldStatus = order?.status;
-
-    // Check if order is being edited by customer
-    const lock = getOrderLock(id);
-    if (lock && lock.userType === "customer") {
-      alert("Cannot update: Customer is currently editing this order");
-      return;
-    }
-
-    await updateOrder(id, { status });
-
-    // Save notification for status change
-    if (order && oldStatus !== status) {
-      saveNotification({
-        type: "status_change",
-        title: "Order Status Updated",
-        message: `Table ${order.table}: ${oldStatus} → ${status}`,
-        table: order.table,
-        orderId: id,
-      });
-    }
+    await updateOrderStatusWithGuard({
+      orderId: id,
+      status,
+      orders,
+      getOrderLock,
+      updateOrder,
+      saveNotification,
+    });
   };
 
   const realOrders = orders.filter((o) => o.items);
@@ -161,12 +191,30 @@ export default function AdminDashboard({ user, onLogout }) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayOrders = realOrders.filter((o) => o.timestamp >= today.getTime());
+  const paidOrders = realOrders.filter((o) => o.paymentStatus === "Paid");
+  const unpaidOrders = realOrders.filter((o) => o.paymentStatus === "Unpaid");
   const todayRevenue = todayOrders.reduce(
-    (s, o) => s + (o.paymentStatus === "Paid" ? o.total : 0),
+    (sum, order) =>
+      sum +
+      (order.paymentStatus === "Paid"
+        ? getOrderBreakdown(order, billingSettings).total
+        : 0),
     0,
   );
-  const totalRevenue = realOrders.reduce(
-    (s, o) => s + (o.paymentStatus === "Paid" ? o.total : 0),
+  const todayPendingRevenue = todayOrders.reduce(
+    (sum, order) =>
+      sum +
+      (order.paymentStatus === "Unpaid"
+        ? getOrderBreakdown(order, billingSettings).total
+        : 0),
+    0,
+  );
+  const totalRevenue = paidOrders.reduce(
+    (sum, order) => sum + getOrderBreakdown(order, billingSettings).total,
+    0,
+  );
+  const pendingRevenue = unpaidOrders.reduce(
+    (sum, order) => sum + getOrderBreakdown(order, billingSettings).total,
     0,
   );
 
@@ -177,19 +225,41 @@ export default function AdminDashboard({ user, onLogout }) {
   const text = darkMode ? "#e8e0f0" : "#1a1a2e";
   const muted = darkMode ? "#6a6a8a" : "#646485";
 
-  const generateInvoice = (order) => {
-    const w = window.open("", "_blank");
-    w.document
-      .write(`<html><body style="font-family:serif;padding:40px;max-width:500px;margin:0 auto">
-      <h1 style="color:#c17f2a;border-bottom:2px solid #c17f2a;padding-bottom:8px">🍽️ Grand Table Restaurant</h1>
-      <p>Invoice #${order.id.toUpperCase()} | Table #${order.table}</p>
-      <p>Date: ${new Date(order.timestamp).toLocaleString()}</p>
-      <hr/><table width="100%">${order.items.map((i) => `<tr><td>${i.qty}× ${i.name}</td><td align="right">₦${(i.price * i.qty).toLocaleString()}</td></tr>`).join("")}
-      </table><hr/>
-      <p><b>Total: ₦${order.total.toLocaleString()}</b></p>
-      <p>Payment: ${order.paymentStatus}</p>
-      ${order.specialInstructions ? `<p>Notes: ${order.specialInstructions}</p>` : ""}
-      <script>window.print()</script></body></html>`);
+  const handleBillingDraftChange = (field, rawValue) => {
+    setBillingDraft((prev) => {
+      const next = { ...prev, [field]: rawValue };
+      const pairedField = {
+        serviceChargeAmount: "serviceChargePercent",
+        serviceChargePercent: "serviceChargeAmount",
+        vatAmount: "vatPercent",
+        vatPercent: "vatAmount",
+        taxAmount: "taxPercent",
+        taxPercent: "taxAmount",
+      }[field];
+      const numericValue = Number(rawValue);
+
+      if (
+        pairedField &&
+        Number.isFinite(numericValue) &&
+        numericValue > 0
+      ) {
+        next[pairedField] = "";
+      }
+
+      return next;
+    });
+  };
+
+  const handleSaveBillingSettings = async () => {
+    setSavingBillingSettings(true);
+    try {
+      await saveBillingSettings(toBillingPayload(billingDraft));
+    } catch (error) {
+      console.error("Failed to save billing settings:", error);
+      alert("Could not save billing settings. Please try again.");
+    } finally {
+      setSavingBillingSettings(false);
+    }
   };
 
   return (
@@ -240,6 +310,7 @@ export default function AdminDashboard({ user, onLogout }) {
             { id: "kitchen", icon: "👨‍🍳", label: "Kitchen View" },
             { id: "menu", icon: "🍴", label: "Menu Management" },
             { id: "tables", icon: "🪑", label: "Tables" },
+            { id: "billing", icon: "⚙️", label: "Billing Config" },
             { id: "analytics", icon: "📊", label: "Analytics" },
             { id: "qrcodes", icon: "📱", label: "QR Codes" },
           ].map((t) => (
@@ -914,7 +985,7 @@ export default function AdminDashboard({ user, onLogout }) {
                           </button>
                         )}
                         <button
-                          onClick={() => generateInvoice(order)}
+                          onClick={() => openInvoiceWindow(order)}
                           style={{
                             background: accent + "22",
                             border: `1px solid ${accent}`,
@@ -1785,462 +1856,33 @@ export default function AdminDashboard({ user, onLogout }) {
             </div>
           )}
 
+          {/* BILLING TAB */}
+          {tab === "billing" && (
+            <BillingConfigTab
+              settings={billingDraft}
+              onFieldChange={handleBillingDraftChange}
+              onSave={handleSaveBillingSettings}
+              isSaving={savingBillingSettings}
+              bg={bg}
+              surface={surface}
+              border={border}
+              text={text}
+              muted={muted}
+              accent={accent}
+            />
+          )}
+
           {/* ANALYTICS TAB */}
           {tab === "analytics" && (
-            <div>
-              <div
-                style={{
-                  fontSize: "18px",
-                  fontWeight: "700",
-                  marginBottom: "20px",
-                }}
-              >
-                Analytics
-              </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: "16px",
-                  marginBottom: "20px",
-                }}
-              >
-                <div
-                  style={{
-                    background: surface,
-                    border: `1px solid ${border}`,
-                    borderRadius: "12px",
-                    padding: "20px",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: "14px",
-                      color: muted,
-                      marginBottom: "12px",
-                    }}
-                  >
-                    Orders by Status
-                  </div>
-                  {ORDER_STATUSES.map((s) => {
-                    const count = realOrders.filter(
-                      (o) => o.status === s,
-                    ).length;
-                    const pct = realOrders.length
-                      ? ((count / realOrders.length) * 100).toFixed(0)
-                      : 0;
-                    return (
-                      <div key={s} style={{ marginBottom: "8px" }}>
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            fontSize: "12px",
-                            marginBottom: "3px",
-                          }}
-                        >
-                          <span style={{ color: STATUS_COLORS[s] }}>{s}</span>
-                          <span>{count}</span>
-                        </div>
-                        <div
-                          style={{
-                            height: "6px",
-                            background: "#1a1a22",
-                            borderRadius: "3px",
-                          }}
-                        >
-                          <div
-                            style={{
-                              height: "100%",
-                              width: `${pct}%`,
-                              background: STATUS_COLORS[s],
-                              borderRadius: "3px",
-                              transition: "width 0.5s",
-                            }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div
-                  style={{
-                    background: surface,
-                    border: `1px solid ${border}`,
-                    borderRadius: "12px",
-                    padding: "20px",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: "14px",
-                      color: muted,
-                      marginBottom: "12px",
-                    }}
-                  >
-                    Revenue Summary
-                  </div>
-                  {[
-                    ["Today", todayRevenue],
-                    ["Total Paid", totalRevenue],
-                    [
-                      "Pending",
-                      realOrders
-                        .filter((o) => o.paymentStatus === "Unpaid")
-                        .reduce((s, o) => s + o.total, 0),
-                    ],
-                  ].map(([l, v]) => (
-                    <div
-                      key={l}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        padding: "10px 0",
-                        borderBottom: `1px solid ${border}`,
-                        fontSize: "14px",
-                      }}
-                    >
-                      <span style={{ color: muted }}>{l}</span>
-                      <span style={{ fontWeight: "700", color: accent }}>
-                        {fmt(v)}
-                      </span>
-                    </div>
-                  ))}
-                  <div
-                    style={{
-                      marginTop: "16px",
-                      padding: "12px",
-                      background: accent + "22",
-                      borderRadius: "8px",
-                      textAlign: "center",
-                    }}
-                  >
-                    <div style={{ fontSize: "11px", color: muted }}>
-                      Total Orders
-                    </div>
-                    <div
-                      style={{
-                        fontSize: "28px",
-                        fontWeight: "700",
-                        color: accent,
-                      }}
-                    >
-                      {realOrders.length}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              {/* Top Items */}
-              <div
-                style={{
-                  background: surface,
-                  border: `1px solid ${border}`,
-                  borderRadius: "12px",
-                  padding: "20px",
-                  marginBottom: "20px",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: "14px",
-                    color: muted,
-                    marginBottom: "12px",
-                  }}
-                >
-                  Top Ordered Items
-                </div>
-                {(() => {
-                  const counts = {};
-                  realOrders.forEach((o) =>
-                    o.items?.forEach((i) => {
-                      counts[i.name] = (counts[i.name] || 0) + i.qty;
-                    }),
-                  );
-                  return Object.entries(counts)
-                    .sort((a, b) => b[1] - a[1])
-                    .slice(0, 8)
-                    .map(([name, qty]) => (
-                      <div
-                        key={name}
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          padding: "8px 0",
-                          borderBottom: `1px solid ${border}`,
-                          fontSize: "13px",
-                        }}
-                      >
-                        <span>{name}</span>
-                        <span style={{ color: accent, fontWeight: "600" }}>
-                          {qty}× ordered
-                        </span>
-                      </div>
-                    ));
-                })()}
-                {realOrders.length === 0 && (
-                  <div
-                    style={{
-                      color: muted,
-                      textAlign: "center",
-                      padding: "20px",
-                    }}
-                  >
-                    No order data yet
-                  </div>
-                )}
-              </div>
-
-              {/* Busy Time Analytics */}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(3, 1fr)",
-                  gap: "16px",
-                  marginBottom: "20px",
-                }}
-              >
-                {/* Busy by Hour */}
-                <div
-                  style={{
-                    background: surface,
-                    border: `1px solid ${border}`,
-                    borderRadius: "12px",
-                    padding: "20px",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: "14px",
-                      color: muted,
-                      marginBottom: "12px",
-                    }}
-                  >
-                    🕐 Busy by Hour
-                  </div>
-                  {(() => {
-                    const hourCounts = {};
-                    realOrders.forEach((o) => {
-                      const hour = new Date(o.timestamp).getHours();
-                      hourCounts[hour] = (hourCounts[hour] || 0) + 1;
-                    });
-                    const maxHour = Math.max(...Object.values(hourCounts), 1);
-                    return Object.entries(hourCounts)
-                      .sort((a, b) => a[0] - b[0])
-                      .map(([hour, count]) => (
-                        <div key={hour} style={{ marginBottom: "6px" }}>
-                          <div
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              fontSize: "11px",
-                              marginBottom: "2px",
-                            }}
-                          >
-                            <span>{hour}:00</span>
-                            <span
-                              style={{
-                                color: count === maxHour ? "#22c55e" : muted,
-                              }}
-                            >
-                              {count} orders
-                            </span>
-                          </div>
-                          <div
-                            style={{
-                              height: "6px",
-                              background: darkMode ? "#1a1a22" : "#eee",
-                              borderRadius: "3px",
-                            }}
-                          >
-                            <div
-                              style={{
-                                height: "100%",
-                                width: `${(count / maxHour) * 100}%`,
-                                background:
-                                  count === maxHour ? "#22c55e" : accent,
-                                borderRadius: "3px",
-                              }}
-                            />
-                          </div>
-                        </div>
-                      ));
-                  })()}
-                  {realOrders.length === 0 && (
-                    <div
-                      style={{
-                        color: muted,
-                        fontSize: "12px",
-                        textAlign: "center",
-                        padding: "10px",
-                      }}
-                    >
-                      No data
-                    </div>
-                  )}
-                </div>
-
-                {/* Busy by Day of Week */}
-                <div
-                  style={{
-                    background: surface,
-                    border: `1px solid ${border}`,
-                    borderRadius: "12px",
-                    padding: "20px",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: "14px",
-                      color: muted,
-                      marginBottom: "12px",
-                    }}
-                  >
-                    📅 Busy by Day
-                  </div>
-                  {(() => {
-                    const dayNames = [
-                      "Sun",
-                      "Mon",
-                      "Tue",
-                      "Wed",
-                      "Thu",
-                      "Fri",
-                      "Sat",
-                    ];
-                    const dayCounts = {};
-                    realOrders.forEach((o) => {
-                      const day = new Date(o.timestamp).getDay();
-                      dayCounts[day] = (dayCounts[day] || 0) + 1;
-                    });
-                    const maxDay = Math.max(...Object.values(dayCounts), 1);
-                    return dayNames.map((name, idx) => {
-                      const count = dayCounts[idx] || 0;
-                      return (
-                        <div key={idx} style={{ marginBottom: "6px" }}>
-                          <div
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              fontSize: "11px",
-                              marginBottom: "2px",
-                            }}
-                          >
-                            <span>{name}</span>
-                            <span
-                              style={{
-                                color: count === maxDay ? "#22c55e" : muted,
-                              }}
-                            >
-                              {count} orders
-                            </span>
-                          </div>
-                          <div
-                            style={{
-                              height: "6px",
-                              background: darkMode ? "#1a1a22" : "#eee",
-                              borderRadius: "3px",
-                            }}
-                          >
-                            <div
-                              style={{
-                                height: "100%",
-                                width: `${(count / maxDay) * 100}%`,
-                                background:
-                                  count === maxDay ? "#22c55e" : accent,
-                                borderRadius: "3px",
-                              }}
-                            />
-                          </div>
-                        </div>
-                      );
-                    });
-                  })()}
-                </div>
-
-                {/* Busy by Month */}
-                <div
-                  style={{
-                    background: surface,
-                    border: `1px solid ${border}`,
-                    borderRadius: "12px",
-                    padding: "20px",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: "14px",
-                      color: muted,
-                      marginBottom: "12px",
-                    }}
-                  >
-                    📆 Busy by Month
-                  </div>
-                  {(() => {
-                    const monthNames = [
-                      "Jan",
-                      "Feb",
-                      "Mar",
-                      "Apr",
-                      "May",
-                      "Jun",
-                      "Jul",
-                      "Aug",
-                      "Sep",
-                      "Oct",
-                      "Nov",
-                      "Dec",
-                    ];
-                    const monthCounts = {};
-                    realOrders.forEach((o) => {
-                      const month = new Date(o.timestamp).getMonth();
-                      monthCounts[month] = (monthCounts[month] || 0) + 1;
-                    });
-                    const maxMonth = Math.max(...Object.values(monthCounts), 1);
-                    return monthNames.map((name, idx) => {
-                      const count = monthCounts[idx] || 0;
-                      return (
-                        <div key={idx} style={{ marginBottom: "6px" }}>
-                          <div
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              fontSize: "11px",
-                              marginBottom: "2px",
-                            }}
-                          >
-                            <span>{name}</span>
-                            <span
-                              style={{
-                                color: count === maxMonth ? "#22c55e" : muted,
-                              }}
-                            >
-                              {count} orders
-                            </span>
-                          </div>
-                          <div
-                            style={{
-                              height: "6px",
-                              background: darkMode ? "#1a1a22" : "#eee",
-                              borderRadius: "3px",
-                            }}
-                          >
-                            <div
-                              style={{
-                                height: "100%",
-                                width: `${(count / maxMonth) * 100}%`,
-                                background:
-                                  count === maxMonth ? "#22c55e" : accent,
-                                borderRadius: "3px",
-                              }}
-                            />
-                          </div>
-                        </div>
-                      );
-                    });
-                  })()}
-                </div>
-              </div>
-            </div>
+            <AnalyticsTab
+              realOrders={realOrders}
+              todayOrders={todayOrders}
+              todayRevenue={todayRevenue}
+              todayPendingRevenue={todayPendingRevenue}
+              totalRevenue={totalRevenue}
+              pendingRevenue={pendingRevenue}
+              darkMode={darkMode}
+            />
           )}
 
           {/* QR CODES TAB */}

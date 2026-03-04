@@ -1,9 +1,23 @@
 import { useState } from 'react';
 import { fmt } from '../../utils/storage';
 
-export default function PaymentView({ total, table, onSuccess, onCancel, orderItems }) {
+export default function PaymentView({
+  total,
+  table,
+  onSuccess,
+  onCancel,
+  orderItems,
+  billBreakdown,
+}) {
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState("choose"); // choose | card | success
+  const receiptBreakdown = {
+    subtotal: Number(billBreakdown?.subtotal ?? total),
+    serviceCharge: Number(billBreakdown?.serviceCharge ?? 0),
+    vat: Number(billBreakdown?.vat ?? 0),
+    tax: Number(billBreakdown?.tax ?? 0),
+    total: Number(billBreakdown?.total ?? total),
+  };
 
   const simulatePay = () => {
     setLoading(true);
@@ -69,10 +83,28 @@ export default function PaymentView({ total, table, onSuccess, onCancel, orderIt
         doc.line(10, y, 70, y);
 
         y += 8;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        [
+          ["Subtotal", receiptBreakdown.subtotal],
+          ["Service Charge", receiptBreakdown.serviceCharge],
+          ["VAT", receiptBreakdown.vat],
+          ["Tax", receiptBreakdown.tax],
+        ].forEach(([label, value]) => {
+          doc.text(label, 10, y);
+          doc.text(`N${Number(value).toLocaleString()}`, 70, y, { align: 'right' });
+          y += 5;
+        });
+
+        doc.setDrawColor(15, 23, 42);
+        doc.setLineWidth(0.5);
+        doc.line(10, y, 70, y);
+
+        y += 7;
         doc.setFont("helvetica", "bold");
         doc.setFontSize(11);
         doc.text("TOTAL PAID", 10, y);
-        doc.text(`N${total.toLocaleString()}`, 70, y, { align: 'right' });
+        doc.text(`N${receiptBreakdown.total.toLocaleString()}`, 70, y, { align: 'right' });
 
         y += 15;
         doc.setFont("helvetica", "normal");
@@ -167,7 +199,7 @@ export default function PaymentView({ total, table, onSuccess, onCancel, orderIt
                 boxShadow: "0 4px 6px rgba(193, 127, 42, 0.2)",
               }}
             >
-              Return to Menu
+              Track Order
             </button>
           </div>
         ) : (

@@ -19,6 +19,10 @@ import {
   MENU_ITEMS,
   MENU_CATEGORIES as DEFAULT_CATEGORIES,
 } from "../data/constants";
+import {
+  DEFAULT_BILLING_SETTINGS,
+  normalizeBillingSettings,
+} from "./billing";
 
 // ============================================================
 // CATEGORIES
@@ -221,6 +225,36 @@ export const subscribeToTables = (callback) => {
     (error) => {
       console.error("Firebase tables subscription error:", error);
       callback(DEFAULT_TABLES);
+    },
+  );
+};
+
+// ============================================================
+// BILLING SETTINGS
+// ============================================================
+const billingSettingsRef = ref(database, "settings/billing");
+
+export const getBillingSettings = () => {
+  return { ...DEFAULT_BILLING_SETTINGS };
+};
+
+export const saveBillingSettings = async (settings) => {
+  await set(billingSettingsRef, normalizeBillingSettings(settings));
+};
+
+export const subscribeToBillingSettings = (callback) => {
+  return onValue(
+    billingSettingsRef,
+    (snapshot) => {
+      if (snapshot.exists()) {
+        callback(normalizeBillingSettings(snapshot.val()));
+      } else {
+        callback({ ...DEFAULT_BILLING_SETTINGS });
+      }
+    },
+    (error) => {
+      console.error("Firebase billing settings subscription error:", error);
+      callback({ ...DEFAULT_BILLING_SETTINGS });
     },
   );
 };

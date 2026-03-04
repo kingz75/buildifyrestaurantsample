@@ -11,6 +11,35 @@ export default function QRCodesTab({
   const base = window.location.href.split("?")[0];
   const [selectedTable, setSelectedTable] = useState(null);
 
+  const copyText = async (text) => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (error) {
+      console.error("Clipboard API copy failed:", error);
+    }
+
+    try {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.top = "-9999px";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const copied = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      return copied;
+    } catch (error) {
+      console.error("Fallback copy failed:", error);
+      return false;
+    }
+  };
+
   return (
     <div>
       <div
@@ -152,11 +181,14 @@ export default function QRCodesTab({
                 Print QR
               </button>
               <button
-                onClick={() =>
-                  navigator.clipboard.writeText(
-                    `${base}?table=${selectedTable}`,
-                  )
-                }
+                onClick={async () => {
+                  const copied = await copyText(`${base}?table=${selectedTable}`);
+                  if (copied) {
+                    alert("Copied!");
+                  } else {
+                    alert("Copy failed. Please copy the URL manually.");
+                  }
+                }}
                 style={{
                   background: accent + "22",
                   border: `1px solid ${accent}`,
@@ -279,9 +311,13 @@ export default function QRCodesTab({
                 style={{ display: "flex", gap: "8px", alignItems: "center" }}
               >
                 <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(u);
-                    alert("Copied!");
+                  onClick={async () => {
+                    const copied = await copyText(u);
+                    if (copied) {
+                      alert("Copied!");
+                    } else {
+                      alert("Copy failed. Please copy the URL manually.");
+                    }
                   }}
                   style={{
                     background: accent + "22",

@@ -7,49 +7,48 @@ import {
   lockOrder,
   unlockOrder,
   getCategories,
-  getTables,
   subscribeToMenu,
   subscribeToOrders,
-  subscribeToTables,
+  getBillingSettings,
+  subscribeToBillingSettings,
   addOrder,
   updateOrder,
 } from "../../utils/storage";
-import TableSelect from "./TableSelect";
+import {
+  calculateBillBreakdown,
+  getOrderBreakdown,
+  sumOrderBreakdowns,
+} from "../../utils/billing";
 import OrderStatus from "./OrderStatus";
 import PaymentView from "./PaymentView";
 import CartDrawer from "./CartDrawer";
 import MenuItem from "./MenuItem";
 
 export default function CustomerApp({ tableNumber: initialTable }) {
-  // Restore table from localStorage if no URL param
-  const [table, setTable] = useState(() => {
-    if (initialTable) return initialTable;
-    const saved = localStorage.getItem('rqs_table');
-    return saved ? parseInt(saved) : null;
-  });
+  const scannedTable =
+    initialTable === null ||
+      typeof initialTable === "undefined" ||
+      initialTable === ""
+      ? NaN
+      : Number(initialTable);
+  const table =
+    Number.isFinite(scannedTable) && scannedTable > 0 ? scannedTable : null;
   const [menuItems, setMenuItems] = useState(getMenuItems);
   const [categories, setCategories] = useState(getCategories);
   const [cart, setCart] = useState([]);
   const [category, setCategory] = useState("All");
   const [search, setSearch] = useState("");
-  const [view, setView] = useState(() => {
-    // Restore view from localStorage
-    const saved = localStorage.getItem('rqs_view');
-    if (initialTable || saved === 'menu') return 'menu';
-    return 'table_select';
-  });
+  const [view, setView] = useState(() => (table ? "menu" : "qr_required"));
   const [orderPlaced, setOrderPlaced] = useState(null);
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [cartOpen, setCartOpen] = useState(false);
   const [payMode, setPayMode] = useState(null); // 'now' | 'later'
-  const [promoCode, setPromoCode] = useState("");
-  const [discount, setDiscount] = useState(0);
+  const [billingSettings, setBillingSettings] = useState(getBillingSettings);
   const [waiterCalled, setWaiterCalled] = useState(false);
   const [isEditingOrder, setIsEditingOrder] = useState(false);
   const [editingCart, setEditingCart] = useState([]);
   const [payingOrder, setPayingOrder] = useState(null); // order being paid for
   const [payAllOrders, setPayAllOrders] = useState(false); // pay for all unpaid orders on table
-  const [tables, setTables] = useState(getTables);
   const [tableOrders, setTableOrders] = useState([]); // multiple active orders for current table
   const [orders, setOrders] = useState([]); // all orders from Firebase
   const [selectedTag, setSelectedTag] = useState(null);
@@ -71,14 +70,12 @@ export default function CustomerApp({ tableNumber: initialTable }) {
   // Persist session to localStorage when state changes
   useEffect(() => {
     if (!isRestored) return;
-    if (table) {
-      localStorage.setItem('rqs_table', table.toString());
-    }
-    localStorage.setItem('rqs_view', view);
     if (orderPlaced) {
       localStorage.setItem('rqs_orderPlaced', JSON.stringify(orderPlaced));
+    } else {
+      localStorage.removeItem('rqs_orderPlaced');
     }
-  }, [table, view, orderPlaced, isRestored]);
+  }, [orderPlaced, isRestored]);
 
   // Browser back button support via History API
   const skipPushRef = useRef(false);
@@ -116,7 +113,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
         if (view === 'order_status') {
           setView('menu');
         } else if (view === 'menu') {
-          setView('table_select');
+          setView('qr_required');
         }
       }
     };
@@ -128,9 +125,6 @@ export default function CustomerApp({ tableNumber: initialTable }) {
   useEffect(() => {
     const unsubMenu = subscribeToMenu((items) => {
       setMenuItems(items);
-    });
-    const unsubTables = subscribeToTables((tables) => {
-      setTables(tables);
     });
     const unsubOrders = subscribeToOrders((orders) => {
       setOrders(orders); // Store all orders
@@ -164,7 +158,6 @@ export default function CustomerApp({ tableNumber: initialTable }) {
     });
     return () => {
       unsubMenu();
-      unsubTables();
       unsubOrders();
     };
   }, [table, orderPlaced]);
@@ -183,6 +176,13 @@ export default function CustomerApp({ tableNumber: initialTable }) {
     });
     return () => unsub();
   }, [table]);
+
+  useEffect(() => {
+    const unsubBilling = subscribeToBillingSettings((settings) => {
+      setBillingSettings(settings);
+    });
+    return () => unsubBilling();
+  }, []);
 
   // Poll for order status if order placed (backup for real-time)
   const [liveOrder, setLiveOrder] = useState(null);
@@ -220,29 +220,32 @@ export default function CustomerApp({ tableNumber: initialTable }) {
   };
 
   const cartTotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
-  const discountedTotal = cartTotal - (cartTotal * discount) / 100;
-
-  const applyPromo = () => {
-    const codes = { WELCOME10: 10, FEAST20: 20, VIP50: 50 };
-    if (codes[promoCode.toUpperCase()]) {
-      setDiscount(codes[promoCode.toUpperCase()]);
-      alert(`Promo applied! ${codes[promoCode.toUpperCase()]}% off`);
-    } else alert("Invalid promo code");
-  };
+  const cartBillBreakdown = calculateBillBreakdown(cartTotal, billingSettings);
 
   const placeOrder = async (paid = false) => {
     if (cart.length === 0) return;
+    const subtotal = cartBillBreakdown.subtotal;
+    const serviceCharge = cartBillBreakdown.serviceCharge;
+    const vat = cartBillBreakdown.vat;
+    const tax = cartBillBreakdown.tax;
+    const total = cartBillBreakdown.total;
     const order = {
       id: generateId(),
       table,
       items: cart,
-      total: discountedTotal,
+      subtotal,
+      total,
+      billingBreakdown: {
+        serviceCharge,
+        vat,
+        tax,
+      },
+      billingSettingsSnapshot: cartBillBreakdown.settings,
       specialInstructions,
       status: "Pending",
       paymentStatus: paid ? "Paid" : "Unpaid",
       paymentMethod: paid ? "Card" : "Cash",
       timestamp: Date.now(),
-      discount,
     };
     await addOrder(order);
     setOrderPlaced(order);
@@ -253,6 +256,10 @@ export default function CustomerApp({ tableNumber: initialTable }) {
   };
 
   const startEditingOrder = (order) => {
+    if (order.paymentStatus === "Paid") {
+      alert("Cannot edit a paid order");
+      return;
+    }
     if (
       ["Confirmed", "Preparing", "Served", "Completed"].includes(order.status)
     ) {
@@ -266,15 +273,38 @@ export default function CustomerApp({ tableNumber: initialTable }) {
 
   const saveEditedOrder = async () => {
     if (!liveOrder || editingCart.length === 0) return;
-    const updatedTotal = editingCart.reduce((s, i) => s + i.price * i.qty, 0);
+    const updatedSubtotal = editingCart.reduce((s, i) => s + i.price * i.qty, 0);
+    const updatedBreakdown = calculateBillBreakdown(
+      updatedSubtotal,
+      liveOrder.billingSettingsSnapshot || billingSettings,
+    );
+    const updatedTotal = updatedBreakdown.total;
     await updateOrder(liveOrder.id, {
       items: editingCart,
+      subtotal: updatedBreakdown.subtotal,
       total: updatedTotal,
+      billingBreakdown: {
+        serviceCharge: updatedBreakdown.serviceCharge,
+        vat: updatedBreakdown.vat,
+        tax: updatedBreakdown.tax,
+      },
+      billingSettingsSnapshot: updatedBreakdown.settings,
     });
     unlockOrder(liveOrder.id);
     setIsEditingOrder(false);
     setEditingCart([]);
-    setLiveOrder({ ...liveOrder, items: editingCart, total: updatedTotal });
+    setLiveOrder({
+      ...liveOrder,
+      items: editingCart,
+      subtotal: updatedBreakdown.subtotal,
+      total: updatedTotal,
+      billingBreakdown: {
+        serviceCharge: updatedBreakdown.serviceCharge,
+        vat: updatedBreakdown.vat,
+        tax: updatedBreakdown.tax,
+      },
+      billingSettingsSnapshot: updatedBreakdown.settings,
+    });
   };
 
   const cancelEditing = () => {
@@ -309,6 +339,13 @@ export default function CustomerApp({ tableNumber: initialTable }) {
     setPayingOrder(liveOrder);
   };
 
+  const goBackToMenu = () => {
+    setPayingOrder(null);
+    setPayMode(null);
+    setPayAllOrders(false);
+    setView("menu");
+  };
+
   const callWaiter = async () => {
     const waiterCall = {
       id: generateId(),
@@ -330,34 +367,38 @@ export default function CustomerApp({ tableNumber: initialTable }) {
       (search === "" || m.name.toLowerCase().includes(search.toLowerCase())),
   );
 
-  if (view === "table_select")
+  if (!table || view === "qr_required")
     return (
-      <TableSelect
-        tables={tables}
-        onSelect={(t) => {
-          setTable(t);
-          // Check for existing active orders for this table (use state)
-          const activeOrders = tableOrders.filter(
-            (o) =>
-              o.table === t &&
-              o.items &&
-              !["Completed", "Served"].includes(o.status),
-          );
-          if (activeOrders.length > 1) {
-            // Multiple active orders - show selection
-            setTableOrders(activeOrders);
-            setView("order_select");
-          } else if (activeOrders.length === 1) {
-            // One active order - continue with it
-            setOrderPlaced(activeOrders[0]);
-            setLiveOrder(activeOrders[0]);
-            setView("menu");
-          } else {
-            // No active orders - go to menu
-            setView("menu");
-          }
+      <div
+        style={{
+          fontFamily: "'Playfair Display', Georgia, serif",
+          background:
+            "radial-gradient(circle at 50% 30%, #2d1200, #0d0d0d 70%)",
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#f5f0e8",
+          padding: "24px",
         }}
-      />
+      >
+        <div style={{ textAlign: "center", maxWidth: "360px", width: "100%" }}>
+          <div style={{ fontSize: "40px", marginBottom: "16px" }}>📱</div>
+          <div
+            style={{
+              fontSize: "22px",
+              fontWeight: "700",
+              color: "#e8b86d",
+              marginBottom: "8px",
+            }}
+          >
+            Scan Table QR Code
+          </div>
+          <div style={{ color: "#7a5c30", fontSize: "14px" }}>
+            Customer ordering is available only through a table QR link.
+          </div>
+        </div>
+      </div>
     );
 
   // Order selection view for tables with multiple active orders
@@ -475,15 +516,10 @@ export default function CustomerApp({ tableNumber: initialTable }) {
       (o) => o.table === payingOrder.table && o.paymentStatus === "Unpaid" && o.items &&
         ["Confirmed", "Preparing", "Ready"].includes(o.status)
     );
-    const singleTotal = payingOrder.items.reduce(
-      (sum, item) => sum + item.price * item.qty,
-      0,
-    );
-    const allTotal = unpaidTableOrders.reduce(
-      (sum, o) => sum + o.items.reduce((s, i) => s + i.price * i.qty, 0),
-      0,
-    );
-    const payTotal = payAllOrders ? allTotal : singleTotal;
+    const singleBreakdown = getOrderBreakdown(payingOrder, billingSettings);
+    const allBreakdown = sumOrderBreakdowns(unpaidTableOrders, billingSettings);
+    const payBreakdown = payAllOrders ? allBreakdown : singleBreakdown;
+    const payTotal = payBreakdown.total;
     const itemsForReceipt = payAllOrders
       ? unpaidTableOrders.flatMap(o => o.items)
       : payingOrder.items;
@@ -493,6 +529,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
         total={payTotal}
         table={payingOrder.table}
         orderItems={itemsForReceipt}
+        billBreakdown={payBreakdown}
         onSuccess={async () => {
           if (payAllOrders) {
             // Mark all unpaid orders on this table as Paid
@@ -613,17 +650,22 @@ export default function CustomerApp({ tableNumber: initialTable }) {
       (o) => o.table === table && o.paymentStatus === "Unpaid" && o.items &&
         ["Confirmed", "Preparing", "Ready"].includes(o.status)
     );
+    const unpaidTableOrdersSummary = sumOrderBreakdowns(
+      unpaidTableOrdersForToggle,
+      billingSettings,
+    );
 
     return (
       <OrderStatus
         order={liveOrder}
-        onBack={() => setView("menu")}
+        onBack={goBackToMenu}
         onNewOrder={(startEdit) => {
           if (startEdit && liveOrder) {
             startEditingOrder(liveOrder);
           } else {
             setOrderPlaced(null);
-            setView("menu");
+            setLiveOrder(null);
+            goBackToMenu();
           }
         }}
         isEditing={isEditingOrder}
@@ -655,16 +697,21 @@ export default function CustomerApp({ tableNumber: initialTable }) {
         payAllOrders={payAllOrders}
         onTogglePayAll={() => setPayAllOrders((prev) => !prev)}
         unpaidTableOrders={unpaidTableOrdersForToggle}
+        allUnpaidTotal={unpaidTableOrdersSummary.total}
       />
     );
   }
   if (payMode === "now")
     return (
       <PaymentView
-        total={discountedTotal}
+        total={cartBillBreakdown.total}
         table={table}
         orderItems={cart}
-        onSuccess={() => placeOrder(true)}
+        billBreakdown={cartBillBreakdown}
+        onSuccess={() => {
+          setPayMode(null);
+          placeOrder(true);
+        }}
         onCancel={() => setPayMode(null)}
       />
     );
@@ -1032,11 +1079,8 @@ export default function CustomerApp({ tableNumber: initialTable }) {
           cart={cart}
           specialInstructions={specialInstructions}
           setSpecialInstructions={setSpecialInstructions}
-          promoCode={promoCode}
-          setPromoCode={setPromoCode}
-          discount={discount}
-          cartTotal={cartTotal}
-          discountedTotal={discountedTotal}
+          cartTotal={cartBillBreakdown.subtotal}
+          billBreakdown={cartBillBreakdown}
           updateQty={updateQty}
           onClose={() => setCartOpen(false)}
           onPayNow={() => {

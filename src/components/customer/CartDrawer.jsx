@@ -1,27 +1,36 @@
 import { fmt } from '../../utils/storage';
-import { PROMO_CODES } from '../../data/constants';
 
 export default function CartDrawer({
   cart,
   specialInstructions,
   setSpecialInstructions,
-  promoCode,
-  setPromoCode,
-  discount,
   cartTotal,
-  discountedTotal,
+  billBreakdown,
   updateQty,
   onClose,
   onPayNow,
   onPayLater
 }) {
-  const applyPromo = () => {
-    if (PROMO_CODES[promoCode.toUpperCase()]) {
-      alert(`Promo applied! ${PROMO_CODES[promoCode.toUpperCase()]}% off`);
-    } else {
-      alert("Invalid promo code");
-    }
-  };
+  const feeRows = [
+    {
+      label: "Service Charge",
+      value: billBreakdown?.serviceCharge || 0,
+      amount: billBreakdown?.settings?.serviceChargeAmount || 0,
+      percent: billBreakdown?.settings?.serviceChargePercent || 0,
+    },
+    {
+      label: "VAT",
+      value: billBreakdown?.vat || 0,
+      amount: billBreakdown?.settings?.vatAmount || 0,
+      percent: billBreakdown?.settings?.vatPercent || 0,
+    },
+    {
+      label: "Tax",
+      value: billBreakdown?.tax || 0,
+      amount: billBreakdown?.settings?.taxAmount || 0,
+      percent: billBreakdown?.settings?.taxPercent || 0,
+    },
+  ];
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 300, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
@@ -62,22 +71,31 @@ export default function CartDrawer({
           style={{ width: "100%", marginTop: "20px", background: "#f8f9fa", border: "1px solid #e2e8f0", color: "#1a1a1a", padding: "12px", borderRadius: "12px", fontSize: "13px", outline: "none", resize: "vertical", minHeight: "80px", boxSizing: "border-box", fontFamily: "inherit" }}
         />
 
-        {/* Promo */}
-        <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
-          <input placeholder="Promo code" value={promoCode} onChange={e => setPromoCode(e.target.value)}
-            style={{ flex: 1, background: "#f8f9fa", border: "1px solid #e2e8f0", color: "#1a1a1a", padding: "12px", borderRadius: "10px", fontSize: "13px", outline: "none", fontFamily: "inherit" }} />
-          <button onClick={applyPromo} style={{ background: "#ffffff", border: "1px solid #c17f2a", color: "#c17f2a", padding: "12px 16px", borderRadius: "10px", cursor: "pointer", fontFamily: "inherit", fontWeight: "600" }}>Apply</button>
-        </div>
+        {/* Promo section removed and replaced by service charge, VAT, and tax */}
 
         <div style={{ marginTop: "20px", padding: "16px", background: "#f8f9fa", borderRadius: "16px", border: "1px solid #e2e8f0" }}>
           <div style={{ display: "flex", justifyContent: "space-between", color: "#64748b", fontSize: "13px", marginBottom: "8px" }}><span>Subtotal</span><span>{fmt(cartTotal)}</span></div>
-          {discount > 0 && <div style={{ display: "flex", justifyContent: "space-between", color: "#22c55e", fontSize: "13px", marginBottom: "8px", fontWeight: "600" }}><span>Discount ({discount}%)</span><span>-{fmt(cartTotal * discount / 100)}</span></div>}
-          <div style={{ display: "flex", justifyContent: "space-between", color: "#c17f2a", fontSize: "18px", fontWeight: "800" }}><span>Total</span><span>{fmt(discountedTotal)}</span></div>
+          <div style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
+            {feeRows.map((fee) => (
+              <div key={fee.label} style={{ flex: 1, background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "8px" }}>
+                <div style={{ color: "#64748b", fontSize: "10px", marginBottom: "4px" }}>
+                  {fee.label}
+                </div>
+                <div style={{ color: "#1a1a1a", fontSize: "12px", fontWeight: "700" }}>
+                  {fmt(fee.value)}
+                </div>
+                <div style={{ color: "#94a3b8", fontSize: "10px", marginTop: "2px" }}>
+                  {fmt(fee.amount)} + {fee.percent}%
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", color: "#c17f2a", fontSize: "18px", fontWeight: "800" }}><span>Total</span><span>{fmt(billBreakdown?.total || cartTotal)}</span></div>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginTop: "20px", paddingBottom: "10px" }}>
           <button onClick={onPayNow} style={{ background: "#22c55e", border: "none", color: "#fff", padding: "16px", borderRadius: "14px", fontSize: "15px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", boxShadow: "0 4px 6px rgba(34, 197, 94, 0.2)" }}>💳 Pay Now</button>
-          <button onClick={onPayLater} style={{ background: "#c17f2a", border: "none", color: "#fff", padding: "16px", borderRadius: "14px", fontSize: "15px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", boxShadow: "0 4px 6px rgba(193, 127, 42, 0.2)" }}>🍽️ Order Now</button>
+          <button onClick={onPayLater} style={{ background: "#c17f2a", border: "none", color: "#fff", padding: "16px", borderRadius: "14px", fontSize: "15px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", boxShadow: "0 4px 6px rgba(193, 127, 42, 0.2)" }}>🍽️ Pay Later</button>
         </div>
       </div>
     </div>
