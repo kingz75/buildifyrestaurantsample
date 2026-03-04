@@ -16,7 +16,6 @@ export default function KitchenView() {
 
   useEffect(() => {
     const unsub = subscribeToOrders((allOrders) => {
-      console.log("KitchenView: Received orders update:", allOrders.length, "orders");
       setOrders(
         allOrders.filter((o) => activeStatuses.includes(o.status) && o.items),
       );

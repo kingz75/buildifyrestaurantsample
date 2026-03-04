@@ -15,6 +15,8 @@ export default function ItemForm({
   categories,
 }) {
   const menuCategories = categories || getCategories();
+  const defaultCategory =
+    menuCategories.find((category) => category !== "All") || "";
   const [form, setForm] = useState(
     item ? {
       tags: [],
@@ -22,7 +24,7 @@ export default function ItemForm({
       ...item
     } : {
       name: "",
-      category: "Starters",
+      category: defaultCategory,
       price: "",
       desc: "",
       tags: [],
@@ -321,3 +323,4 @@ export default function ItemForm({
     </div>
   );
 }
+

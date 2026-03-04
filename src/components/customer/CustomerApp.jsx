@@ -1,14 +1,14 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   getMenuItems,
-  getOrders,
   generateId,
   saveNotification,
   lockOrder,
   unlockOrder,
   getCategories,
+  subscribeToCategories,
   subscribeToMenu,
-  subscribeToOrders,
+  subscribeToTableOrders,
   getBillingSettings,
   subscribeToBillingSettings,
   addOrder,
@@ -53,6 +53,11 @@ export default function CustomerApp({ tableNumber: initialTable }) {
   const [orders, setOrders] = useState([]); // all orders from Firebase
   const [selectedTag, setSelectedTag] = useState(null);
   const [isRestored, setIsRestored] = useState(false); // Track if we've restored state
+  const orderPlacedRef = useRef(orderPlaced);
+
+  useEffect(() => {
+    orderPlacedRef.current = orderPlaced;
+  }, [orderPlaced]);
 
   // Restore order from localStorage on mount
   useEffect(() => {
@@ -126,55 +131,47 @@ export default function CustomerApp({ tableNumber: initialTable }) {
     const unsubMenu = subscribeToMenu((items) => {
       setMenuItems(items);
     });
-    const unsubOrders = subscribeToOrders((orders) => {
-      setOrders(orders); // Store all orders
-      // Update table orders if we have an active table
-      if (table) {
+    const unsubCategories = subscribeToCategories((nextCategories) => {
+      setCategories(Array.isArray(nextCategories) ? nextCategories : []);
+    });
+
+    let unsubOrders = () => {};
+    if (table) {
+      unsubOrders = subscribeToTableOrders(table, (orders) => {
+        setOrders(orders); // Store table orders
         const tableOrdersList = orders.filter(
-          (o) =>
-            o.table === table &&
-            o.status !== "completed" &&
-            o.status !== "cancelled",
+          (o) => o.status !== "completed" && o.status !== "cancelled",
         );
         setTableOrders(tableOrdersList);
-      }
-      // Update live order if we have one
-      if (orderPlaced) {
-        const found = orders.find((o) => o.id === orderPlaced.id);
-        if (found) {
-          setLiveOrder(found);
-          // Detect status change and notify
-          if (prevStatusRef.current && prevStatusRef.current !== found.status) {
-            saveNotification({
-              type: "order_update",
-              title: "Order Status Update",
-              message: `Your order is now: ${found.status}`,
-              table: found.table,
-            });
+
+        // Update live order if we have one
+        if (orderPlacedRef.current) {
+          const found = orders.find((o) => o.id === orderPlacedRef.current.id);
+          if (found) {
+            setLiveOrder(found);
+            // Detect status change and notify
+            if (prevStatusRef.current && prevStatusRef.current !== found.status) {
+              saveNotification({
+                type: "order_update",
+                title: "Order Status Update",
+                message: `Your order is now: ${found.status}`,
+                table: found.table,
+              });
+            }
+            prevStatusRef.current = found.status;
           }
-          prevStatusRef.current = found.status;
         }
-      }
-    });
+      });
+    } else {
+      setOrders([]);
+      setTableOrders([]);
+    }
+
     return () => {
       unsubMenu();
+      unsubCategories();
       unsubOrders();
     };
-  }, [table, orderPlaced]);
-
-  // Subscribe to table orders when table changes
-  useEffect(() => {
-    if (!table) return;
-    const unsub = subscribeToOrders((orders) => {
-      const tableOrdersList = orders.filter(
-        (o) =>
-          o.table === table &&
-          o.status !== "completed" &&
-          o.status !== "cancelled",
-      );
-      setTableOrders(tableOrdersList);
-    });
-    return () => unsub();
   }, [table]);
 
   useEffect(() => {
@@ -184,21 +181,8 @@ export default function CustomerApp({ tableNumber: initialTable }) {
     return () => unsubBilling();
   }, []);
 
-  // Poll for order status if order placed (backup for real-time)
   const [liveOrder, setLiveOrder] = useState(null);
   const prevStatusRef = useRef(null);
-  useEffect(() => {
-    if (!orderPlaced) return;
-    // Initial fetch
-    getOrders().then((orders) => {
-      setOrders(orders); // Also update orders state
-      const found = orders.find((o) => o.id === orderPlaced.id);
-      if (found) {
-        setLiveOrder(found);
-        prevStatusRef.current = found.status;
-      }
-    });
-  }, [orderPlaced]);
 
   const addToCart = (item) => {
     setCart((c) => {
@@ -366,6 +350,24 @@ export default function CustomerApp({ tableNumber: initialTable }) {
       (!selectedTag || (m.tags && m.tags.includes(selectedTag))) &&
       (search === "" || m.name.toLowerCase().includes(search.toLowerCase())),
   );
+  const categoryTabs = useMemo(() => {
+    const menuDerived = Array.from(
+      new Set(
+        menuItems
+          .map((item) => item?.category)
+          .filter((value) => typeof value === "string" && value.trim().length > 0),
+      ),
+    );
+    const source = categories.length > 0 ? categories : menuDerived;
+    const deduped = Array.from(new Set(source));
+    return deduped.includes("All") ? deduped : ["All", ...deduped];
+  }, [categories, menuItems]);
+
+  useEffect(() => {
+    if (!categoryTabs.includes(category)) {
+      setCategory("All");
+    }
+  }, [categoryTabs, category]);
 
   if (!table || view === "qr_required")
     return (
@@ -708,9 +710,9 @@ export default function CustomerApp({ tableNumber: initialTable }) {
         table={table}
         orderItems={cart}
         billBreakdown={cartBillBreakdown}
-        onSuccess={() => {
+        onSuccess={async () => {
+          await placeOrder(true);
           setPayMode(null);
-          placeOrder(true);
         }}
         onCancel={() => setPayMode(null)}
       />
@@ -918,7 +920,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
           scrollbarWidth: "none",
         }}
       >
-        {categories.map((cat) => (
+        {categoryTabs.map((cat) => (
           <button
             key={cat}
             onClick={() => setCategory(cat)}
@@ -977,7 +979,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
 
       {/* Menu Items */}
       <div style={{ padding: "16px", paddingBottom: "100px" }}>
-        {categories
+        {categoryTabs
           .filter((c) => c !== "All" && (category === "All" || category === c))
           .map((cat) => {
             const items = filteredItems.filter((i) => i.category === cat);

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { TAG_COLORS } from "../../data/constants";
 import { fmt } from "../../utils/storage";
 
@@ -9,7 +10,12 @@ export default function MenuItem({
   selectedTag,
   onTagClick
 }) {
-  const hasImage = item?.image && String(item.image).length > 5;
+  const imageValue = String(item?.image || "");
+  const canRenderImage =
+    imageValue.startsWith("data:") ||
+    imageValue.startsWith("http://") ||
+    imageValue.startsWith("https://");
+  const [imageLoaded, setImageLoaded] = useState(false);
 
   return (
     <div
@@ -34,14 +40,30 @@ export default function MenuItem({
           fontSize: "36px",
           flexShrink: 0,
           overflow: "hidden",
+          position: "relative",
         }}
       >
-        {item?.image && String(item.image).startsWith("data:") ? (
-          <img
-            src={item.image}
-            alt={item.name}
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          />
+        {canRenderImage ? (
+          <>
+            {!imageLoaded && "🍽️"}
+            <img
+              src={imageValue}
+              alt={item.name}
+              loading="lazy"
+              decoding="async"
+              onLoad={() => setImageLoaded(true)}
+              onError={() => setImageLoaded(false)}
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+                position: "absolute",
+                inset: 0,
+                opacity: imageLoaded ? 1 : 0,
+                transition: "opacity 0.2s ease",
+              }}
+            />
+          </>
         ) : (
           item?.image || "🍽️"
         )}

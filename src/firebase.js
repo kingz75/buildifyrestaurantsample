@@ -14,11 +14,9 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-console.log("Firebase app initialized:", app.name || "default");
 
 // Get database instance
 const database = getDatabase(app);
-console.log("Firebase database URL:", database.app.options.databaseURL);
 
 // Export both
 export { app, database };

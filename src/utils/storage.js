@@ -9,16 +9,12 @@ import {
   push,
   remove,
   update,
+  query,
+  orderByChild,
+  equalTo,
 } from "firebase/database";
 import { database } from "../firebase";
 
-// Debug: Verify database is initialized
-console.log("Storage: Database imported:", database);
-
-import {
-  MENU_ITEMS,
-  MENU_CATEGORIES as DEFAULT_CATEGORIES,
-} from "../data/constants";
 import {
   DEFAULT_BILLING_SETTINGS,
   normalizeBillingSettings,
@@ -30,7 +26,7 @@ import {
 const categoriesRef = ref(database, "categories");
 
 export const getCategories = () => {
-  return DEFAULT_CATEGORIES;
+  return [];
 };
 
 // Subscribe to categories changes (real-time)
@@ -42,12 +38,12 @@ export const subscribeToCategories = (callback) => {
         const val = snapshot.val();
         callback(Array.isArray(val) ? val : Object.values(val));
       } else {
-        callback(DEFAULT_CATEGORIES);
+        callback([]);
       }
     },
     (error) => {
       console.error("Firebase categories subscription error:", error);
-      callback(DEFAULT_CATEGORIES);
+      callback([]);
     },
   );
 };
@@ -91,11 +87,9 @@ export const addOrder = async (order) => {
 
 // Update an existing order
 export const updateOrder = async (orderId, updates) => {
-  console.log("updateOrder: Attempting to update", orderId, "with", updates);
   const orderRef = ref(database, `orders/${orderId}`);
   try {
     await update(orderRef, updates);
-    console.log("updateOrder: Successfully updated");
   } catch (error) {
     console.error("updateOrder: Failed with error:", error);
     throw error;
@@ -110,23 +104,16 @@ export const deleteOrder = async (orderId) => {
 
 // Subscribe to orders changes (real-time)
 export const subscribeToOrders = (callback) => {
-  console.log("subscribeToOrders: Starting subscription...");
   const unsubscribe = onValue(
     ordersRef,
     (snapshot) => {
-      console.log(
-        "subscribeToOrders: Got snapshot, exists:",
-        snapshot.exists(),
-      );
       if (snapshot.exists()) {
         const orders = Object.entries(snapshot.val()).map(([firebaseKey, data]) => ({
           ...data,
           id: firebaseKey,
         }));
-        console.log("subscribeToOrders: Parsed orders:", orders.length);
         callback(orders);
       } else {
-        console.log("subscribeToOrders: No data");
         callback([]);
       }
     },
@@ -135,8 +122,34 @@ export const subscribeToOrders = (callback) => {
       callback([]);
     },
   );
-  console.log("subscribeToOrders: Subscription active");
   return unsubscribe;
+};
+
+export const subscribeToTableOrders = (tableNumber, callback) => {
+  const tableOrdersRef = query(
+    ordersRef,
+    orderByChild("table"),
+    equalTo(Number(tableNumber)),
+  );
+
+  return onValue(
+    tableOrdersRef,
+    (snapshot) => {
+      if (snapshot.exists()) {
+        const orders = Object.entries(snapshot.val()).map(([firebaseKey, data]) => ({
+          ...data,
+          id: firebaseKey,
+        }));
+        callback(orders);
+      } else {
+        callback([]);
+      }
+    },
+    (error) => {
+      console.error("subscribeToTableOrders: Error:", error);
+      callback([]);
+    },
+  );
 };
 
 // ============================================================
@@ -145,7 +158,7 @@ export const subscribeToOrders = (callback) => {
 const menuRef = ref(database, "menu");
 
 export const getMenuItems = () => {
-  return MENU_ITEMS;
+  return [];
 };
 
 export const saveMenu = async (items) => {
@@ -173,12 +186,12 @@ export const subscribeToMenu = (callback) => {
         }));
         callback(items);
       } else {
-        callback(MENU_ITEMS);
+        callback([]);
       }
     },
     (error) => {
       console.error("Firebase menu subscription error:", error);
-      callback(MENU_ITEMS);
+      callback([]);
     },
   );
 };

@@ -95,16 +95,12 @@ export default function AdminDashboard({ user, onLogout }) {
 
   // Mark as paid function
   const markPaid = (id) => {
-    console.log("markPaid: Starting for order:", id);
     markOrderAsPaid(id, setOrders, updateOrder)
-      .then(() => console.log("markPaid: Success for:", id))
       .catch((error) => console.error("markPaid: Error:", error));
   };
 
   // Make function available globally for testing
   window.testMarkPaid = markPaid;
-
-  console.log("AdminDashboard rendering, orders count:", orders.length);
 
   useEffect(() => {
     localStorage.setItem("rqs_darkmode", JSON.stringify(darkMode));
