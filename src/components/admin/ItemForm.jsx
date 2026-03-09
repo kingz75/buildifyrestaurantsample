@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import { TAG_COLORS } from "../../data/constants";
-import { getCategories } from "../../utils/storage";
+import { getCategories, getItemTags } from "../../utils/storage";
+import MessageModal from "../common/MessageModal";
 
 export default function ItemForm({
   item,
@@ -13,8 +14,13 @@ export default function ItemForm({
   accent,
   muted,
   categories,
+  availableTags,
 }) {
   const menuCategories = categories || getCategories();
+  const itemTags =
+    Array.isArray(availableTags) && availableTags.length > 0
+      ? availableTags
+      : getItemTags();
   const defaultCategory =
     menuCategories.find((category) => category !== "All") || "";
   const [form, setForm] = useState(
@@ -35,6 +41,7 @@ export default function ItemForm({
   const [imagePreview, setImagePreview] = useState(
     item?.image?.startsWith("data:") ? item.image : null,
   );
+  const [validationModal, setValidationModal] = useState(null);
   const fileInputRef = useRef(null);
 
   const toggleTag = (t) =>
@@ -252,40 +259,52 @@ export default function ItemForm({
           flexWrap: "wrap",
         }}
       >
-        {["Spicy", "Vegan", "Vegetarian", "Halal"].map((t) => (
-          <button
-            key={t}
-            onClick={() => toggleTag(t)}
-            style={{
-              background: form.tags.includes(t)
-                ? TAG_COLORS[t] + "33"
-                : "transparent",
-              border: `1px solid ${form.tags.includes(t) ? TAG_COLORS[t] : border}`,
-              color: form.tags.includes(t) ? TAG_COLORS[t] : muted,
-              padding: "5px 12px",
-              borderRadius: "20px",
-              cursor: "pointer",
-              fontSize: "12px",
-              fontFamily: "inherit",
-            }}
-          >
-            {t}
-          </button>
-        ))}
+        {itemTags.map((t) => {
+          const tagColor = TAG_COLORS[t] || "#94a3b8";
+          return (
+            <button
+              key={t}
+              onClick={() => toggleTag(t)}
+              style={{
+                background: form.tags.includes(t)
+                  ? tagColor + "33"
+                  : "transparent",
+                border: `1px solid ${form.tags.includes(t) ? tagColor : border}`,
+                color: form.tags.includes(t) ? tagColor : muted,
+                padding: "5px 12px",
+                borderRadius: "20px",
+                cursor: "pointer",
+                fontSize: "12px",
+                fontFamily: "inherit",
+              }}
+            >
+              {t}
+            </button>
+          );
+        })}
       </div>
       <div style={{ display: "flex", gap: "8px" }}>
         <button
           onClick={() => {
             if (!form.name.trim()) {
-              alert("Item name is required");
+              setValidationModal({
+                title: "Missing Item Name",
+                message: "Item name is required.",
+              });
               return;
             }
             if (!form.price || isNaN(Number(form.price)) || Number(form.price) <= 0) {
-              alert("Valid price is required");
+              setValidationModal({
+                title: "Invalid Price",
+                message: "A valid price is required.",
+              });
               return;
             }
             if (!form.category) {
-              alert("Category is required");
+              setValidationModal({
+                title: "Missing Category",
+                message: "Category is required.",
+              });
               return;
             }
             onSave({ ...form, price: Number(form.price) });
@@ -320,6 +339,17 @@ export default function ItemForm({
           Cancel
         </button>
       </div>
+      <MessageModal
+        open={Boolean(validationModal)}
+        title={validationModal?.title}
+        message={validationModal?.message}
+        onClose={() => setValidationModal(null)}
+        surface={surface}
+        border={border}
+        text={text}
+        muted={muted}
+        accent={accent}
+      />
     </div>
   );
 }

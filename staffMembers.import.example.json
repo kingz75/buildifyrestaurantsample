@@ -1,0 +1,22 @@
+{
+  "staffMembers": {
+    "OWNER_UID_HERE": {
+      "active": true,
+      "email": "owner@example.com",
+      "name": "Owner",
+      "role": "Owner"
+    },
+    "MANAGER_UID_HERE": {
+      "active": true,
+      "email": "manager@example.com",
+      "name": "Manager",
+      "role": "Manager"
+    },
+    "STAFF_UID_HERE": {
+      "active": true,
+      "email": "staff@example.com",
+      "name": "Kitchen Staff",
+      "role": "Staff"
+    }
+  }
+}

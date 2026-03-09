@@ -23,8 +23,12 @@ import OrderStatus from "./OrderStatus";
 import PaymentView from "./PaymentView";
 import CartDrawer from "./CartDrawer";
 import MenuItem from "./MenuItem";
+import MessageModal from "../common/MessageModal";
 
-export default function CustomerApp({ tableNumber: initialTable }) {
+export default function CustomerApp({
+  tableNumber: initialTable,
+  tableAccessCode,
+}) {
   const scannedTable =
     initialTable === null ||
       typeof initialTable === "undefined" ||
@@ -33,6 +37,8 @@ export default function CustomerApp({ tableNumber: initialTable }) {
       : Number(initialTable);
   const table =
     Number.isFinite(scannedTable) && scannedTable > 0 ? scannedTable : null;
+  const accessCode =
+    typeof tableAccessCode === "string" ? tableAccessCode.trim() : "";
   const [menuItems, setMenuItems] = useState(getMenuItems);
   const [categories, setCategories] = useState(getCategories);
   const [cart, setCart] = useState([]);
@@ -53,6 +59,8 @@ export default function CustomerApp({ tableNumber: initialTable }) {
   const [orders, setOrders] = useState([]); // all orders from Firebase
   const [selectedTag, setSelectedTag] = useState(null);
   const [isRestored, setIsRestored] = useState(false); // Track if we've restored state
+  const [modalMessage, setModalMessage] = useState(null);
+  const [menuLoaded, setMenuLoaded] = useState(false);
   const orderPlacedRef = useRef(orderPlaced);
 
   useEffect(() => {
@@ -130,14 +138,15 @@ export default function CustomerApp({ tableNumber: initialTable }) {
   useEffect(() => {
     const unsubMenu = subscribeToMenu((items) => {
       setMenuItems(items);
+      setMenuLoaded(true);
     });
     const unsubCategories = subscribeToCategories((nextCategories) => {
       setCategories(Array.isArray(nextCategories) ? nextCategories : []);
     });
 
     let unsubOrders = () => {};
-    if (table) {
-      unsubOrders = subscribeToTableOrders(table, (orders) => {
+    if (table && accessCode) {
+      unsubOrders = subscribeToTableOrders(accessCode, (orders) => {
         setOrders(orders); // Store table orders
         const tableOrdersList = orders.filter(
           (o) => o.status !== "completed" && o.status !== "cancelled",
@@ -161,7 +170,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
             prevStatusRef.current = found.status;
           }
         }
-      });
+      }, { limit: 40 });
     } else {
       setOrders([]);
       setTableOrders([]);
@@ -172,7 +181,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
       unsubCategories();
       unsubOrders();
     };
-  }, [table]);
+  }, [accessCode, table]);
 
   useEffect(() => {
     const unsubBilling = subscribeToBillingSettings((settings) => {
@@ -212,9 +221,11 @@ export default function CustomerApp({ tableNumber: initialTable }) {
     const serviceCharge = cartBillBreakdown.serviceCharge;
     const vat = cartBillBreakdown.vat;
     const tax = cartBillBreakdown.tax;
+    const customBillers = cartBillBreakdown.customBillerCharges || [];
     const total = cartBillBreakdown.total;
     const order = {
       id: generateId(),
+      accessCode,
       table,
       items: cart,
       subtotal,
@@ -223,6 +234,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
         serviceCharge,
         vat,
         tax,
+        customBillers,
       },
       billingSettingsSnapshot: cartBillBreakdown.settings,
       specialInstructions,
@@ -235,19 +247,26 @@ export default function CustomerApp({ tableNumber: initialTable }) {
     setOrderPlaced(order);
     setLiveOrder(order);
     setCart([]);
+    setSpecialInstructions("");
     setCartOpen(false);
     setView("order_status");
   };
 
   const startEditingOrder = (order) => {
     if (order.paymentStatus === "Paid") {
-      alert("Cannot edit a paid order");
+      setModalMessage({
+        title: "Edit Blocked",
+        message: "Cannot edit a paid order.",
+      });
       return;
     }
     if (
       ["Confirmed", "Preparing", "Served", "Completed"].includes(order.status)
     ) {
-      alert("Cannot edit order that has already been confirmed");
+      setModalMessage({
+        title: "Edit Blocked",
+        message: "Cannot edit an order that has already been confirmed.",
+      });
       return;
     }
     setEditingCart([...order.items]);
@@ -271,6 +290,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
         serviceCharge: updatedBreakdown.serviceCharge,
         vat: updatedBreakdown.vat,
         tax: updatedBreakdown.tax,
+        customBillers: updatedBreakdown.customBillerCharges || [],
       },
       billingSettingsSnapshot: updatedBreakdown.settings,
     });
@@ -286,6 +306,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
         serviceCharge: updatedBreakdown.serviceCharge,
         vat: updatedBreakdown.vat,
         tax: updatedBreakdown.tax,
+        customBillers: updatedBreakdown.customBillerCharges || [],
       },
       billingSettingsSnapshot: updatedBreakdown.settings,
     });
@@ -333,6 +354,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
   const callWaiter = async () => {
     const waiterCall = {
       id: generateId(),
+      accessCode,
       table,
       type: "waiter_call",
       timestamp: Date.now(),
@@ -369,7 +391,7 @@ export default function CustomerApp({ tableNumber: initialTable }) {
     }
   }, [categoryTabs, category]);
 
-  if (!table || view === "qr_required")
+  if (!table || !accessCode || view === "qr_required")
     return (
       <div
         style={{
@@ -525,6 +547,19 @@ export default function CustomerApp({ tableNumber: initialTable }) {
     const itemsForReceipt = payAllOrders
       ? unpaidTableOrders.flatMap(o => o.items)
       : payingOrder.items;
+    const toPaidPayload = (breakdown) => ({
+      subtotal: breakdown.subtotal,
+      total: breakdown.total,
+      billingBreakdown: {
+        serviceCharge: breakdown.serviceCharge,
+        vat: breakdown.vat,
+        tax: breakdown.tax,
+        customBillers: breakdown.customBillerCharges || [],
+      },
+      billingSettingsSnapshot: breakdown.settings,
+      paymentStatus: "Paid",
+      paymentMethod: "Card",
+    });
 
     return (
       <PaymentView
@@ -536,12 +571,25 @@ export default function CustomerApp({ tableNumber: initialTable }) {
           if (payAllOrders) {
             // Mark all unpaid orders on this table as Paid
             for (const o of unpaidTableOrders) {
-              await updateOrder(o.id, { paymentStatus: "Paid", paymentMethod: "Card" });
+              const updatedBreakdown = getOrderBreakdown(o, billingSettings);
+              await updateOrder(o.id, toPaidPayload(updatedBreakdown));
+            }
+            const refreshedLiveOrder = unpaidTableOrders.find(
+              (o) => o.id === payingOrder.id,
+            );
+            if (refreshedLiveOrder) {
+              setLiveOrder({
+                ...payingOrder,
+                ...toPaidPayload(getOrderBreakdown(refreshedLiveOrder, billingSettings)),
+              });
             }
           } else {
-            await updateOrder(payingOrder.id, { paymentStatus: "Paid", paymentMethod: "Card" });
+            await updateOrder(payingOrder.id, toPaidPayload(singleBreakdown));
+            setLiveOrder({
+              ...payingOrder,
+              ...toPaidPayload(singleBreakdown),
+            });
           }
-          setLiveOrder({ ...payingOrder, paymentStatus: "Paid", paymentMethod: "Card" });
           setPayingOrder(null);
           setPayAllOrders(false);
         }}
@@ -658,49 +706,58 @@ export default function CustomerApp({ tableNumber: initialTable }) {
     );
 
     return (
-      <OrderStatus
-        order={liveOrder}
-        onBack={goBackToMenu}
-        onNewOrder={(startEdit) => {
-          if (startEdit && liveOrder) {
-            startEditingOrder(liveOrder);
-          } else {
-            setOrderPlaced(null);
-            setLiveOrder(null);
-            goBackToMenu();
+      <>
+        <OrderStatus
+          order={liveOrder}
+          onBack={goBackToMenu}
+          onNewOrder={(startEdit) => {
+            if (startEdit && liveOrder) {
+              startEditingOrder(liveOrder);
+            } else {
+              setOrderPlaced(null);
+              setLiveOrder(null);
+              goBackToMenu();
+            }
+          }}
+          isEditing={isEditingOrder}
+          editingCart={editingCart}
+          onUpdateEditingQty={updateEditingQty}
+          onSaveEdit={saveEditedOrder}
+          onCancelEdit={cancelEditing}
+          onAddItems={addToEditingCart}
+          menuItems={menuItems}
+          onPay={handlePayNow}
+          otherOrders={
+            liveOrder
+              ? tableOrders.filter(
+                (o) =>
+                  o.table === liveOrder.table &&
+                  o.id !== liveOrder.id &&
+                  o.items &&
+                  !["Completed", "Served"].includes(o.status),
+              )
+              : []
           }
-        }}
-        isEditing={isEditingOrder}
-        editingCart={editingCart}
-        onUpdateEditingQty={updateEditingQty}
-        onSaveEdit={saveEditedOrder}
-        onCancelEdit={cancelEditing}
-        onAddItems={addToEditingCart}
-        menuItems={menuItems}
-        onPay={handlePayNow}
-        otherOrders={
-          liveOrder
-            ? tableOrders.filter(
-              (o) =>
-                o.table === liveOrder.table &&
-                o.id !== liveOrder.id &&
-                o.items &&
-                !["Completed", "Served"].includes(o.status),
-            )
-            : []
-        }
-        onSelectOrder={(orderId) => {
-          const selectedOrder = tableOrders.find((o) => o.id === orderId);
-          if (selectedOrder) {
-            setLiveOrder(selectedOrder);
-            setOrderPlaced(selectedOrder);
-          }
-        }}
-        payAllOrders={payAllOrders}
-        onTogglePayAll={() => setPayAllOrders((prev) => !prev)}
-        unpaidTableOrders={unpaidTableOrdersForToggle}
-        allUnpaidTotal={unpaidTableOrdersSummary.total}
-      />
+          onSelectOrder={(orderId) => {
+            const selectedOrder = tableOrders.find((o) => o.id === orderId);
+            if (selectedOrder) {
+              setLiveOrder(selectedOrder);
+              setOrderPlaced(selectedOrder);
+            }
+          }}
+          payAllOrders={payAllOrders}
+          onTogglePayAll={() => setPayAllOrders((prev) => !prev)}
+          unpaidTableOrders={unpaidTableOrdersForToggle}
+          allUnpaidTotal={unpaidTableOrdersSummary.total}
+        />
+        <MessageModal
+          open={Boolean(modalMessage)}
+          title={modalMessage?.title}
+          message={modalMessage?.message}
+          onClose={() => setModalMessage(null)}
+          accent="#c17f2a"
+        />
+      </>
     );
   }
   if (payMode === "now")
@@ -979,55 +1036,109 @@ export default function CustomerApp({ tableNumber: initialTable }) {
 
       {/* Menu Items */}
       <div style={{ padding: "16px", paddingBottom: "100px" }}>
-        {categoryTabs
-          .filter((c) => c !== "All" && (category === "All" || category === c))
-          .map((cat) => {
-            const items = filteredItems.filter((i) => i.category === cat);
-            if (items.length === 0) return null;
-            return (
-              <div key={cat}>
-                {category === "All" && (
-                  <div
-                    style={{
-                      fontSize: "16px",
-                      fontWeight: "700",
-                      color: "#e8b86d",
-                      margin: "16px 0 10px",
-                      borderLeft: "3px solid #c17f2a",
-                      paddingLeft: "10px",
-                    }}
-                  >
-                    {cat}
-                  </div>
-                )}
-                {items.map((item) => {
-                  const inCart = cart.find((c) => c.id === item.id);
-                  return (
-                    <MenuItem
-                      key={item.id}
-                      item={item}
-                      inCart={inCart}
-                      onAddToCart={addToCart}
-                      onUpdateQty={updateQty}
-                      selectedTag={selectedTag}
-                      onTagClick={(tag) => setSelectedTag(tag === selectedTag ? null : tag)}
-                    />
-                  );
-                })}
-              </div>
-            );
-          })}
-        {filteredItems.length === 0 && (
+        {!menuLoaded ? (
           <div
             style={{
-              textAlign: "center",
-              color: "#7a5c30",
-              padding: "40px 0",
-              fontSize: "15px",
+              display: "grid",
+              gap: "12px",
             }}
           >
-            No items found
+            {Array.from({ length: 6 }).map((_, idx) => (
+              <div
+                key={`menu-loader-${idx}`}
+                style={{
+                  background: "#ffffff",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: "16px",
+                  padding: "14px",
+                  minHeight: "96px",
+                  display: "grid",
+                  gap: "8px",
+                }}
+              >
+                <div
+                  style={{
+                    width: "60%",
+                    height: "14px",
+                    borderRadius: "6px",
+                    background: "#e2e8f0",
+                    animation: "customer-item-pulse 1.1s ease-in-out infinite",
+                  }}
+                />
+                <div
+                  style={{
+                    width: "40%",
+                    height: "12px",
+                    borderRadius: "6px",
+                    background: "#e2e8f0",
+                    animation: "customer-item-pulse 1.1s ease-in-out infinite",
+                  }}
+                />
+                <div
+                  style={{
+                    width: "100%",
+                    height: "10px",
+                    borderRadius: "6px",
+                    background: "#f1f5f9",
+                  }}
+                />
+              </div>
+            ))}
+            <style>{`@keyframes customer-item-pulse { 0% { opacity: .5; } 50% { opacity: 1; } 100% { opacity: .5; } }`}</style>
           </div>
+        ) : (
+          <>
+            {categoryTabs
+              .filter((c) => c !== "All" && (category === "All" || category === c))
+              .map((cat) => {
+                const items = filteredItems.filter((i) => i.category === cat);
+                if (items.length === 0) return null;
+                return (
+                  <div key={cat}>
+                    {category === "All" && (
+                      <div
+                        style={{
+                          fontSize: "16px",
+                          fontWeight: "700",
+                          color: "#e8b86d",
+                          margin: "16px 0 10px",
+                          borderLeft: "3px solid #c17f2a",
+                          paddingLeft: "10px",
+                        }}
+                      >
+                        {cat}
+                      </div>
+                    )}
+                    {items.map((item) => {
+                      const inCart = cart.find((c) => c.id === item.id);
+                      return (
+                        <MenuItem
+                          key={item.id}
+                          item={item}
+                          inCart={inCart}
+                          onAddToCart={addToCart}
+                          onUpdateQty={updateQty}
+                          selectedTag={selectedTag}
+                          onTagClick={(tag) => setSelectedTag(tag === selectedTag ? null : tag)}
+                        />
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            {filteredItems.length === 0 && (
+              <div
+                style={{
+                  textAlign: "center",
+                  color: "#7a5c30",
+                  padding: "40px 0",
+                  fontSize: "15px",
+                }}
+              >
+                No items found
+              </div>
+            )}
+          </>
         )}
       </div>
 

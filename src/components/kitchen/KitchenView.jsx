@@ -1,42 +1,54 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ORDER_STATUSES, STATUS_COLORS } from "../../data/constants";
 import {
-  getOrders,
-  timeAgo,
-  saveNotification,
   getOrderLock,
+  saveNotification,
   subscribeToOrders,
+  timeAgo,
   updateOrder,
 } from "../../utils/storage";
+import MessageModal from "../common/MessageModal";
 
-export default function KitchenView() {
+export default function KitchenView({ user, onLogout }) {
   const [orders, setOrders] = useState([]);
+  const [ordersLoaded, setOrdersLoaded] = useState(false);
+  const [bootDelayDone, setBootDelayDone] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
+  const [modalMessage, setModalMessage] = useState(null);
   const activeStatuses = ["Confirmed", "Preparing"];
 
   useEffect(() => {
+    const timer = setTimeout(() => setBootDelayDone(true), 900);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    setOrdersLoaded(false);
     const unsub = subscribeToOrders((allOrders) => {
       setOrders(
-        allOrders.filter((o) => activeStatuses.includes(o.status) && o.items),
+        allOrders.filter((order) => activeStatuses.includes(order.status) && order.items),
       );
-    });
+      setOrdersLoaded(true);
+    }, { limit: 60 });
     return () => unsub();
   }, []);
 
   const advance = async (id) => {
-    const all = orders;
-    const order = all.find((o) => o.id === id);
+    const order = orders.find((candidate) => candidate.id === id);
     const oldStatus = order?.status;
 
     const lock = getOrderLock(id);
     if (lock && lock.userType === "customer") {
-      alert("Cannot update: Customer is currently editing this order");
+      setModalMessage({
+        title: "Update Blocked",
+        message: "Cannot update: Customer is currently editing this order.",
+      });
       return;
     }
 
-    const i = ORDER_STATUSES.indexOf(order.status);
+    const statusIndex = ORDER_STATUSES.indexOf(order.status);
     const newStatus =
-      ORDER_STATUSES[Math.min(i + 1, ORDER_STATUSES.length - 1)];
+      ORDER_STATUSES[Math.min(statusIndex + 1, ORDER_STATUSES.length - 1)];
 
     await updateOrder(id, { status: newStatus });
 
@@ -44,7 +56,7 @@ export default function KitchenView() {
       saveNotification({
         type: "kitchen_status",
         title: "Kitchen Update",
-        message: `Table ${order.table}: ${oldStatus} → ${newStatus}`,
+        message: `Table ${order.table}: ${oldStatus} -> ${newStatus}`,
         table: order.table,
         orderId: id,
       });
@@ -56,6 +68,7 @@ export default function KitchenView() {
   const text = darkMode ? "#f5f0e8" : "#1a1a1a";
   const muted = darkMode ? "#888888" : "#666666";
   const border = darkMode ? "#333" : "#e2e8f0";
+  const isLoading = !bootDelayDone || !ordersLoaded;
 
   return (
     <div
@@ -76,19 +89,35 @@ export default function KitchenView() {
           marginBottom: "24px",
           borderBottom: `2px solid ${border}`,
           paddingBottom: "16px",
+          gap: "16px",
+          flexWrap: "wrap",
         }}
       >
         <div>
           <div
             style={{ fontSize: "24px", fontWeight: "700", color: "#ff9500" }}
           >
-            🔥 Kitchen Display
+            Kitchen Display
           </div>
           <div style={{ fontSize: "12px", color: muted, marginTop: "2px" }}>
-            Live Orders • Auto-refreshes
+            {user?.role || "Staff"}  | Live Orders
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <button
+            onClick={onLogout}
+            style={{
+              background: "transparent",
+              border: `1px solid ${border}`,
+              color: muted,
+              padding: "8px 12px",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontSize: "13px",
+            }}
+          >
+            Sign Out
+          </button>
           <button
             onClick={() => setDarkMode(!darkMode)}
             style={{
@@ -104,7 +133,7 @@ export default function KitchenView() {
               gap: "6px",
             }}
           >
-            {darkMode ? "☀️ Light" : "🌙 Dark"}
+            {darkMode ? "Light" : "Dark"}
           </button>
           <div
             style={{
@@ -122,7 +151,22 @@ export default function KitchenView() {
         </div>
       </div>
 
-      {orders.length === 0 ? (
+      {isLoading ? (
+        <div
+          style={{
+            textAlign: "center",
+            padding: "60px",
+            color: muted,
+            fontSize: "18px",
+            border: `1px solid ${border}`,
+            borderRadius: "12px",
+            background: surface,
+          }}
+        >
+          <div style={{ fontSize: "26px", marginBottom: "8px" }}>...</div>
+          Loading kitchen orders...
+        </div>
+      ) : orders.length === 0 ? (
         <div
           style={{
             textAlign: "center",
@@ -207,7 +251,7 @@ export default function KitchenView() {
                       minWidth: "24px",
                     }}
                   >
-                    ×{item.qty}
+                    x{item.qty}
                   </span>
                   <span style={{ color: text }}>{item.name}</span>
                 </div>
@@ -224,7 +268,7 @@ export default function KitchenView() {
                     color: darkMode ? "#ffbb66" : "#af6600",
                   }}
                 >
-                  📝 {order.specialInstructions}
+                  Note: {order.specialInstructions}
                 </div>
               )}
               <button
@@ -245,19 +289,29 @@ export default function KitchenView() {
                 Mark as{" "}
                 {
                   ORDER_STATUSES[
-                  Math.min(
-                    ORDER_STATUSES.indexOf(order.status) + 1,
-                    ORDER_STATUSES.length - 1,
-                  )
+                    Math.min(
+                      ORDER_STATUSES.indexOf(order.status) + 1,
+                      ORDER_STATUSES.length - 1,
+                    )
                   ]
                 }{" "}
-                →
+                {"->"}
               </button>
             </div>
           ))}
         </div>
       )}
+      <MessageModal
+        open={Boolean(modalMessage)}
+        title={modalMessage?.title}
+        message={modalMessage?.message}
+        onClose={() => setModalMessage(null)}
+        surface={surface}
+        border={border}
+        text={text}
+        muted={muted}
+        accent="#ff9500"
+      />
     </div>
   );
 }
-

@@ -7,6 +7,8 @@ import {
   saveTables,
   getCategories,
   saveCategories,
+  getItemTags,
+  saveItemTags,
   fmt,
   timeAgo,
   getNotifications,
@@ -18,6 +20,7 @@ import {
   subscribeToMenu,
   subscribeToTables,
   subscribeToCategories,
+  subscribeToItemTags,
   getBillingSettings,
   saveBillingSettings,
   subscribeToBillingSettings,
@@ -35,32 +38,34 @@ import {
 } from "./dashboard/orderActions";
 
 export default function AdminDashboard({ user, onLogout }) {
+  const toBillerDraft = (biller = {}, index = 0) => ({
+    id: String(biller.id || `biller_${index}`),
+    name: String(biller.name || "").trim() || `Biller ${index + 1}`,
+    amount:
+      Number(biller.amount || 0) === 0 ? "" : String(Number(biller.amount || 0)),
+    percent:
+      Number(biller.percent || 0) === 0
+        ? ""
+        : String(Number(biller.percent || 0)),
+    active: biller.active !== false,
+  });
+
   const toBillingDraft = (settings = {}) => ({
-    serviceChargeAmount:
-      Number(settings.serviceChargeAmount || 0) === 0
-        ? ""
-        : String(settings.serviceChargeAmount),
-    serviceChargePercent:
-      Number(settings.serviceChargePercent || 0) === 0
-        ? ""
-        : String(settings.serviceChargePercent),
-    vatAmount:
-      Number(settings.vatAmount || 0) === 0 ? "" : String(settings.vatAmount),
-    vatPercent:
-      Number(settings.vatPercent || 0) === 0 ? "" : String(settings.vatPercent),
-    taxAmount:
-      Number(settings.taxAmount || 0) === 0 ? "" : String(settings.taxAmount),
-    taxPercent:
-      Number(settings.taxPercent || 0) === 0 ? "" : String(settings.taxPercent),
+    customBillers: Array.isArray(settings.customBillers)
+      ? settings.customBillers.map(toBillerDraft)
+      : [],
   });
 
   const toBillingPayload = (draft = {}) => ({
-    serviceChargeAmount: Number(draft.serviceChargeAmount || 0),
-    serviceChargePercent: Number(draft.serviceChargePercent || 0),
-    vatAmount: Number(draft.vatAmount || 0),
-    vatPercent: Number(draft.vatPercent || 0),
-    taxAmount: Number(draft.taxAmount || 0),
-    taxPercent: Number(draft.taxPercent || 0),
+    customBillers: (Array.isArray(draft.customBillers) ? draft.customBillers : []).map(
+      (biller, index) => ({
+        id: String(biller.id || `biller_${index}`),
+        name: String(biller.name || "").trim() || `Biller ${index + 1}`,
+        amount: Number(biller.amount || 0),
+        percent: Number(biller.percent || 0),
+        active: biller.active !== false,
+      }),
+    ),
   });
 
   const [tab, setTab] = useState("orders");
@@ -75,6 +80,9 @@ export default function AdminDashboard({ user, onLogout }) {
   const [filterTable, setFilterTable] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterPay, setFilterPay] = useState("");
+  const [ordersLoaded, setOrdersLoaded] = useState(false);
+  const [menuLoaded, setMenuLoaded] = useState(false);
+  const [adminBootDelayDone, setAdminBootDelayDone] = useState(false);
   const prevOrderCount = useRef(0);
   const [showAddItem, setShowAddItem] = useState(false);
   const [editItem, setEditItem] = useState(null);
@@ -86,12 +94,55 @@ export default function AdminDashboard({ user, onLogout }) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
+  const [showAddTag, setShowAddTag] = useState(false);
+  const [newTagName, setNewTagName] = useState("");
+  const [itemTags, setItemTags] = useState(getItemTags);
   const [orderVersion, setOrderVersion] = useState(0);
   const [billingSettings, setBillingSettings] = useState(getBillingSettings);
   const [billingDraft, setBillingDraft] = useState(() =>
     toBillingDraft(getBillingSettings()),
   );
   const [savingBillingSettings, setSavingBillingSettings] = useState(false);
+  const [billingSaveState, setBillingSaveState] = useState("idle");
+  const billingSaveResetTimerRef = useRef(null);
+  const [modalState, setModalState] = useState(null);
+  const shouldSubscribeMenuData = tab === "menu";
+  const shouldSubscribeTables =
+    tab === "orders" || tab === "tables" || tab === "qrcodes";
+  const shouldSubscribeBillingSettings =
+    tab === "billing" || tab === "analytics";
+
+  const closeModal = () => setModalState(null);
+  const showInfoModal = (title, message) => {
+    setModalState({
+      type: "info",
+      title,
+      message,
+    });
+  };
+  const showConfirmModal = ({
+    title,
+    message,
+    confirmLabel = "Confirm",
+    confirmTone = "danger",
+    onConfirm,
+  }) => {
+    setModalState({
+      type: "confirm",
+      title,
+      message,
+      confirmLabel,
+      confirmTone,
+      onConfirm,
+    });
+  };
+  const runModalConfirm = () => {
+    const confirmAction = modalState?.onConfirm;
+    closeModal();
+    if (typeof confirmAction === "function") {
+      confirmAction();
+    }
+  };
 
   // Mark as paid function
   const markPaid = (id) => {
@@ -116,38 +167,86 @@ export default function AdminDashboard({ user, onLogout }) {
   }, []);
 
   useEffect(() => {
+    if (!shouldSubscribeBillingSettings) return undefined;
     const unsubBillingSettings = subscribeToBillingSettings((settings) => {
       setBillingSettings(settings);
       setBillingDraft(toBillingDraft(settings));
+      setBillingSaveState("idle");
     });
     return () => unsubBillingSettings();
+  }, [shouldSubscribeBillingSettings]);
+
+  useEffect(
+    () => () => {
+      if (billingSaveResetTimerRef.current) {
+        clearTimeout(billingSaveResetTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const timer = setTimeout(() => setAdminBootDelayDone(true), 600);
+    return () => clearTimeout(timer);
   }, []);
 
-  // Subscribe to orders
+  // Keep a capped, recent-orders listener for the dashboard.
   useEffect(() => {
+    setOrdersLoaded(false);
     const unsubOrders = subscribeToOrders((all) => {
       setOrders(all);
-    });
-
-    const unsubMenu = subscribeToMenu((items) => {
-      setMenuItems(items);
-    });
-
-    const unsubTables = subscribeToTables((tables) => {
-      setTables(tables);
-    });
-
-    const unsubCategories = subscribeToCategories((cats) => {
-      setCategories(cats);
-    });
+      setOrdersLoaded(true);
+    }, { limit: 80 });
 
     return () => {
       unsubOrders();
-      unsubMenu();
-      unsubTables();
-      unsubCategories();
     };
   }, []);
+
+  useEffect(() => {
+    if (!shouldSubscribeMenuData) return undefined;
+    setMenuLoaded(false);
+    let hasMenuSnapshot = false;
+    let hasCategoriesSnapshot = false;
+    let hasTagsSnapshot = false;
+    const markMenuLoaded = () => {
+      if (hasMenuSnapshot && hasCategoriesSnapshot && hasTagsSnapshot) {
+        setMenuLoaded(true);
+      }
+    };
+
+    const unsubMenu = subscribeToMenu((items) => {
+      setMenuItems(items);
+      hasMenuSnapshot = true;
+      markMenuLoaded();
+    });
+    const unsubCategories = subscribeToCategories((cats) => {
+      setCategories(cats);
+      hasCategoriesSnapshot = true;
+      markMenuLoaded();
+    });
+    const unsubItemTags = subscribeToItemTags((tags) => {
+      setItemTags(tags);
+      hasTagsSnapshot = true;
+      markMenuLoaded();
+    });
+
+    return () => {
+      unsubMenu();
+      unsubCategories();
+      unsubItemTags();
+    };
+  }, [shouldSubscribeMenuData]);
+
+  useEffect(() => {
+    if (!shouldSubscribeTables) return undefined;
+    const unsubTables = subscribeToTables((nextTables) => {
+      setTables(nextTables);
+    });
+    return () => {
+      unsubTables();
+    };
+  }, [shouldSubscribeTables]);
 
   const handleAddCategory = () => {
     if (newCategoryName.trim()) {
@@ -162,20 +261,94 @@ export default function AdminDashboard({ user, onLogout }) {
     }
   };
 
-  const updateOrderStatus = async (id, status) => {
-    await updateOrderStatusWithGuard({
-      orderId: id,
-      status,
-      orders,
-      getOrderLock,
-      updateOrder,
-      saveNotification,
+  const handleDeleteCategory = (categoryToDelete) => {
+    if (!categoryToDelete || categoryToDelete === "All") return;
+    const inUse = menuItems.some((item) => item.category === categoryToDelete);
+    if (inUse) {
+      showInfoModal(
+        "Cannot Delete Category",
+        "Some menu items still use this category. Reassign or delete those items first.",
+      );
+      return;
+    }
+    showConfirmModal({
+      title: "Delete Category",
+      message: `Delete "${categoryToDelete}"?`,
+      confirmLabel: "Delete",
+      confirmTone: "danger",
+      onConfirm: () => {
+        const updatedCategories = categories.filter((c) => c !== categoryToDelete);
+        setCategories(updatedCategories);
+        saveCategories(updatedCategories);
+      },
     });
+  };
+
+  const handleAddTag = () => {
+    if (!newTagName.trim()) return;
+    const normalized = newTagName.trim();
+    const exists = itemTags.some(
+      (tag) => String(tag).toLowerCase() === normalized.toLowerCase(),
+    );
+    if (!exists) {
+      const updated = [...itemTags, normalized];
+      setItemTags(updated);
+      saveItemTags(updated);
+    }
+    setNewTagName("");
+    setShowAddTag(false);
+  };
+
+  const handleDeleteTag = (tagToDelete) => {
+    if (!tagToDelete) return;
+    showConfirmModal({
+      title: "Delete Tag",
+      message: `Delete "${tagToDelete}"?`,
+      confirmLabel: "Delete",
+      confirmTone: "danger",
+      onConfirm: () => {
+        const updatedTags = itemTags.filter((tag) => tag !== tagToDelete);
+        setItemTags(updatedTags);
+        saveItemTags(updatedTags);
+
+        const hasTagInMenu = menuItems.some((item) =>
+          Array.isArray(item.tags) && item.tags.includes(tagToDelete),
+        );
+        if (hasTagInMenu) {
+          const updatedMenu = menuItems.map((item) => ({
+            ...item,
+            tags: Array.isArray(item.tags)
+              ? item.tags.filter((tag) => tag !== tagToDelete)
+              : [],
+          }));
+          setMenuItems(updatedMenu);
+          saveMenu(updatedMenu);
+        }
+      },
+    });
+  };
+
+  const updateOrderStatus = async (id, status) => {
+    try {
+      await updateOrderStatusWithGuard({
+        orderId: id,
+        status,
+        orders,
+        getOrderLock,
+        updateOrder,
+        saveNotification,
+      });
+    } catch (error) {
+      showInfoModal("Update Blocked", error?.message || "Could not update order.");
+    }
   };
 
   const realOrders = orders.filter((o) => o.items);
   const waiterCalls = orders.filter((o) => o.type === "waiter_call");
   const readyOrders = realOrders.filter((o) => o.status === "Ready");
+  const kitchenOrders = realOrders.filter((o) =>
+    ["Pending", "Confirmed", "Preparing"].includes(o.status),
+  );
   const filteredOrders = realOrders.filter(
     (o) =>
       (!filterTable || String(o.table) === filterTable) &&
@@ -220,39 +393,120 @@ export default function AdminDashboard({ user, onLogout }) {
   const accent = "#7c5ccc";
   const text = darkMode ? "#e8e0f0" : "#1a1a2e";
   const muted = darkMode ? "#6a6a8a" : "#646485";
+  const isOrdersLoading = !adminBootDelayDone || !ordersLoaded;
 
-  const handleBillingDraftChange = (field, rawValue) => {
-    setBillingDraft((prev) => {
-      const next = { ...prev, [field]: rawValue };
-      const pairedField = {
-        serviceChargeAmount: "serviceChargePercent",
-        serviceChargePercent: "serviceChargeAmount",
-        vatAmount: "vatPercent",
-        vatPercent: "vatAmount",
-        taxAmount: "taxPercent",
-        taxPercent: "taxAmount",
-      }[field];
-      const numericValue = Number(rawValue);
+  const handleAddCustomBiller = () => {
+    setBillingDraft((prev) => ({
+      ...prev,
+      customBillers: [
+        ...(Array.isArray(prev.customBillers) ? prev.customBillers : []),
+        {
+          id: `biller_${Date.now()}`,
+          name: "New Biller",
+          amount: "",
+          percent: "",
+          active: true,
+        },
+      ],
+    }));
+    setBillingSaveState("idle");
+  };
 
-      if (
-        pairedField &&
-        Number.isFinite(numericValue) &&
-        numericValue > 0
-      ) {
-        next[pairedField] = "";
-      }
+  const handleCustomBillerFieldChange = (billerId, field, rawValue) => {
+    setBillingDraft((prev) => ({
+      ...prev,
+      customBillers: (Array.isArray(prev.customBillers) ? prev.customBillers : []).map(
+        (biller) => {
+          if (biller.id !== billerId) return biller;
+          const nextBiller = { ...biller, [field]: rawValue };
+          const numericValue = Number(rawValue);
+          if (field === "amount" && Number.isFinite(numericValue) && numericValue > 0) {
+            nextBiller.percent = "";
+          }
+          if (field === "percent" && Number.isFinite(numericValue) && numericValue > 0) {
+            nextBiller.amount = "";
+          }
+          return nextBiller;
+        },
+      ),
+    }));
+    setBillingSaveState("idle");
+  };
 
-      return next;
+  const handleDeleteCustomBiller = (billerId, billerName = "this biller") => {
+    showConfirmModal({
+      title: "Delete Biller",
+      message: `Delete "${billerName}"?`,
+      confirmLabel: "Delete",
+      confirmTone: "danger",
+      onConfirm: () => {
+        setBillingDraft((prev) => ({
+          ...prev,
+          customBillers: (Array.isArray(prev.customBillers) ? prev.customBillers : []).filter(
+            (biller) => biller.id !== billerId,
+          ),
+        }));
+        setBillingSaveState("idle");
+      },
     });
   };
 
+  const handleToggleCustomBiller = (billerId, billerName = "this biller") => {
+    const target = (Array.isArray(billingDraft.customBillers) ? billingDraft.customBillers : [])
+      .find((biller) => biller.id === billerId);
+    const isActive = target?.active !== false;
+    const applyToggle = () => {
+      setBillingDraft((prev) => ({
+        ...prev,
+        customBillers: (Array.isArray(prev.customBillers) ? prev.customBillers : []).map(
+          (biller) =>
+            biller.id === billerId
+              ? { ...biller, active: biller.active === false }
+              : biller,
+          ),
+      }));
+      setBillingSaveState("idle");
+    };
+
+    if (isActive) {
+      showConfirmModal({
+        title: "Deactivate Biller",
+        message: `Deactivate "${billerName}"?`,
+        confirmLabel: "Deactivate",
+        confirmTone: "warning",
+        onConfirm: applyToggle,
+      });
+      return;
+    }
+
+    applyToggle();
+  };
+
+  const hasBillingChanges =
+    JSON.stringify(toBillingPayload(billingDraft)) !==
+    JSON.stringify(toBillingPayload(toBillingDraft(billingSettings)));
+  const showBillingSaveButton =
+    hasBillingChanges || savingBillingSettings || billingSaveState === "saved";
+
   const handleSaveBillingSettings = async () => {
     setSavingBillingSettings(true);
+    setBillingSaveState("saving");
     try {
       await saveBillingSettings(toBillingPayload(billingDraft));
+      setBillingSaveState("saved");
+      if (billingSaveResetTimerRef.current) {
+        clearTimeout(billingSaveResetTimerRef.current);
+      }
+      billingSaveResetTimerRef.current = setTimeout(() => {
+        setBillingSaveState("idle");
+      }, 1800);
     } catch (error) {
       console.error("Failed to save billing settings:", error);
-      alert("Could not save billing settings. Please try again.");
+      showInfoModal(
+        "Save Failed",
+        "Could not save billing settings. Please try again.",
+      );
+      setBillingSaveState("idle");
     } finally {
       setSavingBillingSettings(false);
     }
@@ -292,8 +546,8 @@ export default function AdminDashboard({ user, onLogout }) {
             <div style={{ fontSize: "18px", fontWeight: "700", color: accent }}>
               🍽️ Grand Table
             </div>
-            <div style={{ fontSize: "11px", color: muted, marginTop: "4px" }}>
-              {user.role} • {user.username}
+            <div style={{ fontSize:  "12px", color: muted, marginTop: "4px" }}>
+              {user.role} 
             </div>
           </div>
           {[
@@ -811,7 +1065,13 @@ export default function AdminDashboard({ user, onLogout }) {
                   </select>
                 </div>
               </div>
-              {filteredOrders.length === 0 ? (
+              {isOrdersLoading ? (
+                <div
+                  style={{ textAlign: "center", padding: "60px", color: muted }}
+                >
+                  Loading orders...
+                </div>
+              ) : filteredOrders.length === 0 ? (
                 <div
                   style={{ textAlign: "center", padding: "60px", color: muted }}
                 >
@@ -1022,11 +1282,19 @@ export default function AdminDashboard({ user, onLogout }) {
                   gap: "12px",
                 }}
               >
-                {realOrders
-                  .filter((o) =>
-                    ["Pending", "Confirmed", "Preparing"].includes(o.status),
-                  )
-                  .map((order) => (
+                {isOrdersLoading && (
+                  <div
+                    style={{
+                      color: muted,
+                      padding: "40px",
+                      textAlign: "center",
+                    }}
+                  >
+                    Loading kitchen orders...
+                  </div>
+                )}
+                {!isOrdersLoading &&
+                  kitchenOrders.map((order) => (
                     <div
                       key={order.id}
                       style={{
@@ -1114,9 +1382,7 @@ export default function AdminDashboard({ user, onLogout }) {
                       </select>
                     </div>
                   ))}
-                {realOrders.filter((o) =>
-                  ["Pending", "Confirmed", "Preparing"].includes(o.status),
-                ).length === 0 && (
+                {!isOrdersLoading && kitchenOrders.length === 0 && (
                     <div
                       style={{
                         color: muted,
@@ -1165,7 +1431,11 @@ export default function AdminDashboard({ user, onLogout }) {
                     + Add Item
                   </button>
                   <button
-                    onClick={() => setShowAddCategory(true)}
+                    onClick={() => {
+                      setShowAddCategory((prev) => !prev);
+                      setShowAddTag(false);
+                      setShowAddItem(false);
+                    }}
                     style={{
                       background: accent + "22",
                       border: `1px solid ${accent}`,
@@ -1180,12 +1450,45 @@ export default function AdminDashboard({ user, onLogout }) {
                   >
                     + Add Category
                   </button>
+                  <button
+                    onClick={() => {
+                      setShowAddTag((prev) => !prev);
+                      setShowAddCategory(false);
+                      setShowAddItem(false);
+                    }}
+                    style={{
+                      background: accent + "22",
+                      border: `1px solid ${accent}`,
+                      color: accent,
+                      padding: "10px 18px",
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      fontSize: "13px",
+                      fontWeight: "600",
+                    }}
+                  >
+                    + Add Tag
+                  </button>
                 </div>
               </div>
+              {!menuLoaded ? (
+                <div
+                  style={{
+                    textAlign: "center",
+                    padding: "60px",
+                    color: muted,
+                  }}
+                >
+                  Loading menu management data...
+                </div>
+              ) : (
+                <>
               {showAddItem && (
                 <ItemForm
                   item={null}
                   categories={categories}
+                  availableTags={itemTags}
                   onSave={(item) => {
                     let updated = [...menuItems, { ...item, id: Date.now() }];
                     setMenuItems(updated);
@@ -1282,6 +1585,182 @@ export default function AdminDashboard({ user, onLogout }) {
                     >
                       Cancel
                     </button>
+                  </div>
+                  <div style={{ marginTop: "12px" }}>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        color: muted,
+                        marginBottom: "8px",
+                      }}
+                    >
+                      Existing Categories
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                      {categories
+                        .filter((c) => c !== "All")
+                        .map((cat) => (
+                        <span
+                          key={cat}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            background: bg,
+                            border: `1px solid ${border}`,
+                            borderRadius: "20px",
+                            padding: "4px 10px",
+                            fontSize: "12px",
+                          }}
+                        >
+                          {cat}
+                          <button
+                            onClick={() => handleDeleteCategory(cat)}
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              color: "#ff4444",
+                              cursor: "pointer",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              lineHeight: 1,
+                              padding: 0,
+                            }}
+                            title={`Delete ${cat}`}
+                          >
+                            x
+                          </button>
+                        </span>
+                      ))}
+                      {categories.filter((c) => c !== "All").length === 0 && (
+                        <div style={{ fontSize: "12px", color: muted }}>
+                          No custom categories yet.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {showAddTag && (
+                <div
+                  style={{
+                    background: surface,
+                    border: `1px solid ${border}`,
+                    borderRadius: "12px",
+                    padding: "16px",
+                    marginBottom: "16px",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "14px",
+                      fontWeight: "600",
+                      marginBottom: "12px",
+                      color: accent,
+                    }}
+                  >
+                    Add New Tag
+                  </div>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <input
+                      placeholder="Tag name"
+                      value={newTagName}
+                      onChange={(e) => setNewTagName(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleAddTag()}
+                      autoFocus
+                      style={{
+                        flex: 1,
+                        background: bg,
+                        border: `1px solid ${border}`,
+                        color: text,
+                        padding: "10px 12px",
+                        borderRadius: "6px",
+                        outline: "none",
+                        fontFamily: "inherit",
+                        fontSize: "13px",
+                      }}
+                    />
+                    <button
+                      onClick={handleAddTag}
+                      disabled={!newTagName.trim()}
+                      style={{
+                        background: accent,
+                        border: "none",
+                        color: "#fff",
+                        padding: "10px 16px",
+                        borderRadius: "6px",
+                        cursor: newTagName.trim() ? "pointer" : "not-allowed",
+                        fontSize: "13px",
+                        fontFamily: "inherit",
+                        opacity: newTagName.trim() ? 1 : 0.5,
+                      }}
+                    >
+                      Add
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowAddTag(false);
+                        setNewTagName("");
+                      }}
+                      style={{
+                        background: "transparent",
+                        border: `1px solid ${border}`,
+                        color: muted,
+                        padding: "10px 16px",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                        fontSize: "13px",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  <div style={{ marginTop: "12px" }}>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        color: muted,
+                        marginBottom: "8px",
+                      }}
+                    >
+                      Existing Tags
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                      {itemTags.map((tag) => (
+                        <span
+                          key={tag}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            background: bg,
+                            border: `1px solid ${border}`,
+                            borderRadius: "20px",
+                            padding: "4px 10px",
+                            fontSize: "12px",
+                          }}
+                        >
+                          {tag}
+                          <button
+                            onClick={() => handleDeleteTag(tag)}
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              color: "#ff4444",
+                              cursor: "pointer",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              lineHeight: 1,
+                              padding: 0,
+                            }}
+                            title={`Delete ${tag}`}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}
@@ -1422,13 +1901,19 @@ export default function AdminDashboard({ user, onLogout }) {
                               </button>
                               <button
                                 onClick={() => {
-                                  if (confirm("Delete item?")) {
-                                    const u = menuItems.filter(
-                                      (m) => m.id !== item.id,
-                                    );
-                                    setMenuItems(u);
-                                    saveMenu(u);
-                                  }
+                                  showConfirmModal({
+                                    title: "Delete Item",
+                                    message: `Delete "${item.name}"?`,
+                                    confirmLabel: "Delete",
+                                    confirmTone: "danger",
+                                    onConfirm: () => {
+                                      const updatedMenu = menuItems.filter(
+                                        (m) => m.id !== item.id,
+                                      );
+                                      setMenuItems(updatedMenu);
+                                      saveMenu(updatedMenu);
+                                    },
+                                  });
                                 }}
                                 style={{
                                   background: "#ff444422",
@@ -1453,6 +1938,7 @@ export default function AdminDashboard({ user, onLogout }) {
                                 <ItemForm
                                   item={editItem}
                                   categories={categories}
+                                  availableTags={itemTags}
                                   onSave={(updatedItem) => {
                                     const updated = menuItems.map((m) =>
                                       m.id === updatedItem.id ? updatedItem : m,
@@ -1477,6 +1963,8 @@ export default function AdminDashboard({ user, onLogout }) {
                     );
                   })}
               </div>
+                </>
+              )}
             </div>
           )}
 
@@ -1816,13 +2304,19 @@ export default function AdminDashboard({ user, onLogout }) {
                           </button>
                           <button
                             onClick={() => {
-                              if (confirm(`Delete table "${table.name}"?`)) {
-                                const updated = tables.filter(
-                                  (t) => t.id !== table.id,
-                                );
-                                setTables(updated);
-                                saveTables(updated);
-                              }
+                              showConfirmModal({
+                                title: "Delete Table",
+                                message: `Delete table "${table.name}"?`,
+                                confirmLabel: "Delete",
+                                confirmTone: "danger",
+                                onConfirm: () => {
+                                  const updated = tables.filter(
+                                    (t) => t.id !== table.id,
+                                  );
+                                  setTables(updated);
+                                  saveTables(updated);
+                                },
+                              });
                             }}
                             style={{
                               background: "#ff444422",
@@ -1856,9 +2350,14 @@ export default function AdminDashboard({ user, onLogout }) {
           {tab === "billing" && (
             <BillingConfigTab
               settings={billingDraft}
-              onFieldChange={handleBillingDraftChange}
+              onAddBiller={handleAddCustomBiller}
+              onBillerFieldChange={handleCustomBillerFieldChange}
+              onDeleteBiller={handleDeleteCustomBiller}
+              onToggleBiller={handleToggleCustomBiller}
               onSave={handleSaveBillingSettings}
               isSaving={savingBillingSettings}
+              saveState={billingSaveState}
+              showSaveButton={showBillingSaveButton}
               bg={bg}
               surface={surface}
               border={border}
@@ -1889,10 +2388,94 @@ export default function AdminDashboard({ user, onLogout }) {
               surface={surface}
               border={border}
               darkMode={darkMode}
+              tables={tables}
             />
           )}
         </div>
       </div>
+      {modalState && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: "16px",
+          }}
+        >
+          <div
+            style={{
+              width: "100%",
+              maxWidth: "440px",
+              background: surface,
+              border: `1px solid ${border}`,
+              borderRadius: "12px",
+              padding: "18px",
+              boxShadow: "0 20px 40px rgba(0,0,0,0.25)",
+            }}
+          >
+            <div style={{ fontSize: "16px", fontWeight: "700", color: text }}>
+              {modalState.title || "Notice"}
+            </div>
+            <div style={{ fontSize: "13px", color: muted, marginTop: "8px" }}>
+              {modalState.message || ""}
+            </div>
+            <div
+              style={{
+                marginTop: "16px",
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "8px",
+              }}
+            >
+              {modalState.type === "confirm" && (
+                <button
+                  onClick={closeModal}
+                  style={{
+                    background: "transparent",
+                    border: `1px solid ${border}`,
+                    color: muted,
+                    padding: "8px 12px",
+                    borderRadius: "8px",
+                    cursor: "pointer",
+                    fontSize: "12px",
+                    fontFamily: "inherit",
+                    fontWeight: "600",
+                  }}
+                >
+                  Cancel
+                </button>
+              )}
+              <button
+                onClick={modalState.type === "confirm" ? runModalConfirm : closeModal}
+                style={{
+                  background:
+                    modalState.confirmTone === "warning"
+                      ? "#f59e0b"
+                      : modalState.confirmTone === "danger"
+                        ? "#ef4444"
+                        : accent,
+                  border: "none",
+                  color: "#fff",
+                  padding: "8px 12px",
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                  fontSize: "12px",
+                  fontFamily: "inherit",
+                  fontWeight: "600",
+                }}
+              >
+                {modalState.type === "confirm"
+                  ? modalState.confirmLabel || "Confirm"
+                  : "OK"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

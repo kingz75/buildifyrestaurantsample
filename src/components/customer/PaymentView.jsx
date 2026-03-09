@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { fmt } from '../../utils/storage';
+import MessageModal from "../common/MessageModal";
 
 export default function PaymentView({
   total,
@@ -11,11 +12,15 @@ export default function PaymentView({
 }) {
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState("choose"); // choose | card | success
+  const [modalMessage, setModalMessage] = useState(null);
   const receiptBreakdown = {
     subtotal: Number(billBreakdown?.subtotal ?? total),
     serviceCharge: Number(billBreakdown?.serviceCharge ?? 0),
     vat: Number(billBreakdown?.vat ?? 0),
     tax: Number(billBreakdown?.tax ?? 0),
+    customBillerCharges: Array.isArray(billBreakdown?.customBillerCharges)
+      ? billBreakdown.customBillerCharges
+      : [],
     total: Number(billBreakdown?.total ?? total),
   };
 
@@ -85,12 +90,14 @@ export default function PaymentView({
         y += 8;
         doc.setFont("helvetica", "normal");
         doc.setFontSize(8);
-        [
+        const breakdownRows = [
           ["Subtotal", receiptBreakdown.subtotal],
-          ["Service Charge", receiptBreakdown.serviceCharge],
-          ["VAT", receiptBreakdown.vat],
-          ["Tax", receiptBreakdown.tax],
-        ].forEach(([label, value]) => {
+          ...receiptBreakdown.customBillerCharges.map((biller) => [
+            biller.name,
+            Number(biller.value || 0),
+          ]),
+        ];
+        breakdownRows.forEach(([label, value]) => {
           doc.text(label, 10, y);
           doc.text(`N${Number(value).toLocaleString()}`, 70, y, { align: 'right' });
           y += 5;
@@ -116,7 +123,10 @@ export default function PaymentView({
         doc.save(`receipt_table_${table}.pdf`);
       } catch (err) {
         console.error("PDF generation error:", err);
-        alert("Error generating PDF: " + err.message);
+        setModalMessage({
+          title: "PDF Error",
+          message: "Error generating PDF: " + err.message,
+        });
       } finally {
         setLoading(false);
       }
@@ -133,12 +143,18 @@ export default function PaymentView({
         if (ctor) generate(ctor);
         else {
           setLoading(false);
-          alert("Could not initialize PDF library.");
+          setModalMessage({
+            title: "PDF Error",
+            message: "Could not initialize PDF library.",
+          });
         }
       };
       script.onerror = () => {
         setLoading(false);
-        alert("Failed to load PDF engine.");
+        setModalMessage({
+          title: "PDF Error",
+          message: "Failed to load PDF engine.",
+        });
       };
       document.body.appendChild(script);
     }
@@ -283,6 +299,13 @@ export default function PaymentView({
           </div>
         )}
       </div>
+      <MessageModal
+        open={Boolean(modalMessage)}
+        title={modalMessage?.title}
+        message={modalMessage?.message}
+        onClose={() => setModalMessage(null)}
+        accent="#c17f2a"
+      />
     </div>
   );
 }

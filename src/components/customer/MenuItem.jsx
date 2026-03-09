@@ -122,28 +122,31 @@ export default function MenuItem({
           }}
         >
           <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-            {item.tags?.map((t) => (
-              <button
-                key={t}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onTagClick && onTagClick(t);
-                }}
-                style={{
-                  background: selectedTag === t ? TAG_COLORS[t] : TAG_COLORS[t] + "11",
-                  color: selectedTag === t ? "#fff" : TAG_COLORS[t],
-                  border: `1px solid ${selectedTag === t ? "transparent" : TAG_COLORS[t] + "44"}`,
-                  borderRadius: "10px",
-                  padding: "2px 8px",
-                  fontSize: "10px",
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                  transition: "all 0.2s",
-                }}
-              >
-                {t}
-              </button>
-            ))}
+            {item.tags?.map((t) => {
+              const tagColor = TAG_COLORS[t] || "#94a3b8";
+              return (
+                <button
+                  key={t}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTagClick && onTagClick(t);
+                  }}
+                  style={{
+                    background: selectedTag === t ? tagColor : tagColor + "11",
+                    color: selectedTag === t ? "#fff" : tagColor,
+                    border: `1px solid ${selectedTag === t ? "transparent" : tagColor + "44"}`,
+                    borderRadius: "10px",
+                    padding: "2px 8px",
+                    fontSize: "10px",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    transition: "all 0.2s",
+                  }}
+                >
+                  {t}
+                </button>
+              );
+            })}
           </div>
 
           {inCart ? (

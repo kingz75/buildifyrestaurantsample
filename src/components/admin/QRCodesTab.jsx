@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import MessageModal from "../common/MessageModal";
 
 export default function QRCodesTab({
   accent,
@@ -7,9 +8,31 @@ export default function QRCodesTab({
   surface,
   border,
   darkMode,
+  tables = [],
 }) {
   const base = window.location.href.split("?")[0];
   const [selectedTable, setSelectedTable] = useState(null);
+  const [modalMessage, setModalMessage] = useState(null);
+  const activeTables = (tables || [])
+    .filter((table) => table.active)
+    .sort((a, b) => Number(a.number) - Number(b.number));
+  const selectedTableData = activeTables.find(
+    (table) => Number(table.number) === Number(selectedTable),
+  );
+  const buildCustomerUrl = (table) => {
+    if (!table?.accessCode) return `${base}?table=${table?.number || ""}`;
+    return `${base}?table=${table.number}&access=${encodeURIComponent(table.accessCode)}`;
+  };
+
+  useEffect(() => {
+    if (!selectedTable) return;
+    const stillExists = activeTables.some(
+      (table) => Number(table.number) === Number(selectedTable),
+    );
+    if (!stillExists) {
+      setSelectedTable(null);
+    }
+  }, [activeTables, selectedTable]);
 
   const copyText = async (text) => {
     try {
@@ -64,7 +87,7 @@ export default function QRCodesTab({
         </div>
 
         {/* Selected QR Code Display */}
-        {selectedTable && (
+        {selectedTableData && (
           <div
             style={{
               background: darkMode ? "#0f0f12" : "#ffffff",
@@ -82,7 +105,7 @@ export default function QRCodesTab({
                 marginBottom: "12px",
               }}
             >
-              Table {selectedTable}
+              {selectedTableData.name}
             </div>
             <div
               style={{
@@ -99,7 +122,7 @@ export default function QRCodesTab({
                 }}
               >
                 <QRCodeSVG
-                  value={`${base}?table=${selectedTable}`}
+                  value={buildCustomerUrl(selectedTableData)}
                   size={180}
                   level={"H"}
                   includeMargin={true}
@@ -114,7 +137,7 @@ export default function QRCodesTab({
                 fontFamily: "monospace",
               }}
             >
-              {base}?table={selectedTable}
+              {buildCustomerUrl(selectedTableData)}
             </div>
             <div
               style={{ display: "flex", gap: "8px", justifyContent: "center" }}
@@ -125,7 +148,7 @@ export default function QRCodesTab({
                   printWindow.document.write(`
                     <html>
                       <head>
-                        <title>Table ${selectedTable} QR Code</title>
+                        <title>${selectedTableData.name} QR Code</title>
                         <style>
                           body { 
                             font-family: Arial, sans-serif; 
@@ -157,9 +180,9 @@ export default function QRCodesTab({
                       </head>
                       <body>
                         <div class="qr-container">
-                          <div class="table-number">Table ${selectedTable}</div>
-                          <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(base + "?table=" + selectedTable)}" alt="QR Code" />
-                          <div class="url">${base}?table=${selectedTable}</div>
+                          <div class="table-number">${selectedTableData.name}</div>
+                          <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(buildCustomerUrl(selectedTableData))}" alt="QR Code" />
+                          <div class="url">${buildCustomerUrl(selectedTableData)}</div>
                         </div>
                         <script>window.onload = function() { window.print(); window.close(); }</script>
                       </body>
@@ -182,11 +205,17 @@ export default function QRCodesTab({
               </button>
               <button
                 onClick={async () => {
-                  const copied = await copyText(`${base}?table=${selectedTable}`);
+                  const copied = await copyText(buildCustomerUrl(selectedTableData));
                   if (copied) {
-                    alert("Copied!");
+                    setModalMessage({
+                      title: "Copied",
+                      message: "URL copied to clipboard.",
+                    });
                   } else {
-                    alert("Copy failed. Please copy the URL manually.");
+                    setModalMessage({
+                      title: "Copy Failed",
+                      message: "Please copy the URL manually.",
+                    });
                   }
                 }}
                 style={{
@@ -228,17 +257,20 @@ export default function QRCodesTab({
             gap: "8px",
           }}
         >
-          {Array.from({ length: 20 }, (_, i) => i + 1).map((t) => (
+          {activeTables.map((table) => (
             <div
-              key={t}
-              onClick={() => setSelectedTable(t)}
+              key={table.id}
+              onClick={() => setSelectedTable(table.number)}
               style={{
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
                 padding: "12px 8px",
-                background: selectedTable === t ? accent + "22" : "#ffffff08",
-                border: `1px solid ${selectedTable === t ? accent : border}`,
+                background:
+                  Number(selectedTable) === Number(table.number)
+                    ? accent + "22"
+                    : "#ffffff08",
+                border: `1px solid ${Number(selectedTable) === Number(table.number) ? accent : border}`,
                 borderRadius: "8px",
                 cursor: "pointer",
                 transition: "all 0.2s",
@@ -252,14 +284,23 @@ export default function QRCodesTab({
                   marginBottom: "6px",
                 }}
               >
-                <QRCodeSVG value={`${base}?table=${t}`} size={48} level={"L"} />
+                <QRCodeSVG
+                  value={buildCustomerUrl(table)}
+                  size={48}
+                  level={"L"}
+                />
               </div>
               <span style={{ fontWeight: "600", fontSize: "12px" }}>
-                Table {t}
+                {table.name}
               </span>
             </div>
           ))}
         </div>
+        {activeTables.length === 0 && (
+          <div style={{ textAlign: "center", color: muted, padding: "18px 0 4px" }}>
+            No active tables found. Add a table first.
+          </div>
+        )}
       </div>
 
       {/* Other Access Points */}
@@ -314,9 +355,15 @@ export default function QRCodesTab({
                   onClick={async () => {
                     const copied = await copyText(u);
                     if (copied) {
-                      alert("Copied!");
+                      setModalMessage({
+                        title: "Copied",
+                        message: "URL copied to clipboard.",
+                      });
                     } else {
-                      alert("Copy failed. Please copy the URL manually.");
+                      setModalMessage({
+                        title: "Copy Failed",
+                        message: "Please copy the URL manually.",
+                      });
                     }
                   }}
                   style={{
@@ -355,6 +402,17 @@ export default function QRCodesTab({
           ))}
         </div>
       </div>
+      <MessageModal
+        open={Boolean(modalMessage)}
+        title={modalMessage?.title}
+        message={modalMessage?.message}
+        onClose={() => setModalMessage(null)}
+        surface={surface}
+        border={border}
+        text={darkMode ? "#e8e0f0" : "#1a1a2e"}
+        muted={muted}
+        accent={accent}
+      />
     </div>
   );
 }

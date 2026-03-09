@@ -33,8 +33,7 @@ export const updateOrderStatusWithGuard = async ({
 
   const lock = getOrderLock(orderId);
   if (lock && lock.userType === "customer") {
-    alert("Cannot update: Customer is currently editing this order");
-    return;
+    throw new Error("Cannot update: Customer is currently editing this order");
   }
 
   await updateOrder(orderId, { status });
@@ -52,6 +51,14 @@ export const updateOrderStatusWithGuard = async ({
 
 export const openInvoiceWindow = (order) => {
   const breakdown = getOrderBreakdown(order);
+  const customRowsHtml = (breakdown.customBillerCharges || [])
+    .map(
+      (biller) =>
+        `<tr><td>${escapeHtml(biller.name)}</td><td align="right">${formatCurrency(
+          biller.value,
+        )}</td></tr>`,
+    )
+    .join("");
   const itemsHtml = (order.items || [])
     .map(
       (item) =>
@@ -71,9 +78,7 @@ export const openInvoiceWindow = (order) => {
       <hr/>
       <table width="100%">
         <tr><td>Subtotal</td><td align="right">${formatCurrency(breakdown.subtotal)}</td></tr>
-        <tr><td>Service Charge</td><td align="right">${formatCurrency(breakdown.serviceCharge)}</td></tr>
-        <tr><td>VAT</td><td align="right">${formatCurrency(breakdown.vat)}</td></tr>
-        <tr><td>Tax</td><td align="right">${formatCurrency(breakdown.tax)}</td></tr>
+        ${customRowsHtml}
         <tr><td><b>Total</b></td><td align="right"><b>${formatCurrency(breakdown.total)}</b></td></tr>
       </table>
       <p>Payment: ${escapeHtml(order.paymentStatus)}</p>

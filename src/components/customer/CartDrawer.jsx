@@ -12,24 +12,12 @@ export default function CartDrawer({
   onPayLater
 }) {
   const feeRows = [
-    {
-      label: "Service Charge",
-      value: billBreakdown?.serviceCharge || 0,
-      amount: billBreakdown?.settings?.serviceChargeAmount || 0,
-      percent: billBreakdown?.settings?.serviceChargePercent || 0,
-    },
-    {
-      label: "VAT",
-      value: billBreakdown?.vat || 0,
-      amount: billBreakdown?.settings?.vatAmount || 0,
-      percent: billBreakdown?.settings?.vatPercent || 0,
-    },
-    {
-      label: "Tax",
-      value: billBreakdown?.tax || 0,
-      amount: billBreakdown?.settings?.taxAmount || 0,
-      percent: billBreakdown?.settings?.taxPercent || 0,
-    },
+    ...((billBreakdown?.customBillerCharges || []).map((biller) => ({
+      label: biller.name,
+      value: biller.value || 0,
+      amount: biller.amount || 0,
+      percent: biller.percent || 0,
+    }))),
   ];
 
   return (
@@ -71,7 +59,7 @@ export default function CartDrawer({
           style={{ width: "100%", marginTop: "20px", background: "#f8f9fa", border: "1px solid #e2e8f0", color: "#1a1a1a", padding: "12px", borderRadius: "12px", fontSize: "13px", outline: "none", resize: "vertical", minHeight: "80px", boxSizing: "border-box", fontFamily: "inherit" }}
         />
 
-        {/* Promo section removed and replaced by service charge, VAT, and tax */}
+        {/* Billing rows */}
 
         <div style={{ marginTop: "20px", padding: "16px", background: "#f8f9fa", borderRadius: "16px", border: "1px solid #e2e8f0" }}>
           <div style={{ display: "flex", justifyContent: "space-between", color: "#64748b", fontSize: "13px", marginBottom: "8px" }}><span>Subtotal</span><span>{fmt(cartTotal)}</span></div>

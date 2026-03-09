@@ -6,12 +6,16 @@ import {
   set,
   get,
   onValue,
+  onChildAdded,
+  onChildChanged,
+  onChildRemoved,
   push,
   remove,
   update,
   query,
   orderByChild,
   equalTo,
+  limitToLast,
 } from "firebase/database";
 import { database } from "../firebase";
 
@@ -24,6 +28,8 @@ import {
 // CATEGORIES
 // ============================================================
 const categoriesRef = ref(database, "categories");
+const itemTagsRef = ref(database, "settings/itemTags");
+const DEFAULT_ITEM_TAGS = ["Spicy", "Vegan", "Vegetarian", "Halal"];
 
 export const getCategories = () => {
   return [];
@@ -52,18 +58,82 @@ export const saveCategories = async (categories) => {
   await set(categoriesRef, categories);
 };
 
+export const getItemTags = () => {
+  return [...DEFAULT_ITEM_TAGS];
+};
+
+export const saveItemTags = async (tags) => {
+  await set(itemTagsRef, tags);
+};
+
+export const subscribeToItemTags = (callback) => {
+  return onValue(
+    itemTagsRef,
+    (snapshot) => {
+      if (snapshot.exists()) {
+        const val = snapshot.val();
+        callback(Array.isArray(val) ? val : Object.values(val));
+      } else {
+        callback([...DEFAULT_ITEM_TAGS]);
+      }
+    },
+    (error) => {
+      console.error("Firebase item tags subscription error:", error);
+      callback([...DEFAULT_ITEM_TAGS]);
+    },
+  );
+};
+
 // ============================================================
 // ORDERS
 // ============================================================
 const ordersRef = ref(database, "orders");
+const DEFAULT_RECENT_ORDERS_LIMIT = 80;
+const DEFAULT_TABLE_ORDERS_LIMIT = 40;
+const TABLE_ACCESS_CODE_LENGTH = 24;
+const toSafeLimit = (rawLimit, fallback) => {
+  const parsed = Number(rawLimit);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+};
+const isNonEmptyString = (value) =>
+  typeof value === "string" && value.trim().length > 0;
+const mapOrderSnapshot = (snapshot) => ({
+  ...(snapshot.val() || {}),
+  id: snapshot.key,
+});
+const sortOrdersByTimestampDesc = (orders = []) =>
+  [...orders].sort((a, b) => Number(b?.timestamp || 0) - Number(a?.timestamp || 0));
+const createRandomToken = (size = TABLE_ACCESS_CODE_LENGTH) => {
+  const alphabet =
+    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789_-";
+  const values = new Uint32Array(size);
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    crypto.getRandomValues(values);
+    return Array.from(values, (value) => alphabet[value % alphabet.length]).join("");
+  }
+  return Array.from({ length: size }, () =>
+    alphabet[Math.floor(Math.random() * alphabet.length)],
+  ).join("");
+};
 
-export const getOrders = async () => {
-  const snapshot = await get(ordersRef);
+export const getOrders = async (options = {}) => {
+  const includeAll = options.includeAll === true;
+  const limit = toSafeLimit(options.limit, DEFAULT_RECENT_ORDERS_LIMIT);
+  const ordersQuery = includeAll
+    ? ordersRef
+    : query(
+      ordersRef,
+      orderByChild("timestamp"),
+      limitToLast(limit),
+    );
+  const snapshot = await get(ordersQuery);
   if (snapshot.exists()) {
-    return Object.entries(snapshot.val()).map(([firebaseKey, data]) => ({
-      ...data,
-      id: firebaseKey,
-    }));
+    return sortOrdersByTimestampDesc(
+      Object.entries(snapshot.val()).map(([firebaseKey, data]) => ({
+        ...data,
+        id: firebaseKey,
+      })),
+    );
   }
   return [];
 };
@@ -103,53 +173,157 @@ export const deleteOrder = async (orderId) => {
 };
 
 // Subscribe to orders changes (real-time)
-export const subscribeToOrders = (callback) => {
-  const unsubscribe = onValue(
+export const subscribeToOrders = (callback, options = {}) => {
+  const limit = toSafeLimit(options.limit, DEFAULT_RECENT_ORDERS_LIMIT);
+  const ordersQuery = query(
     ordersRef,
-    (snapshot) => {
-      if (snapshot.exists()) {
-        const orders = Object.entries(snapshot.val()).map(([firebaseKey, data]) => ({
-          ...data,
-          id: firebaseKey,
-        }));
-        callback(orders);
-      } else {
-        callback([]);
-      }
-    },
-    (error) => {
-      console.error("subscribeToOrders: Error:", error);
-      callback([]);
-    },
+    orderByChild("timestamp"),
+    limitToLast(limit),
   );
-  return unsubscribe;
+  const orderCache = new Map();
+  let disposed = false;
+  let emitTimer = null;
+  let initialSnapshotResolved = false;
+
+  const emit = () => {
+    if (disposed) return;
+    callback(sortOrdersByTimestampDesc(Array.from(orderCache.values())));
+  };
+
+  const scheduleEmit = () => {
+    if (disposed || emitTimer) return;
+    emitTimer = setTimeout(() => {
+      emitTimer = null;
+      emit();
+    }, 16);
+  };
+
+  const upsertOrder = (snapshot) => {
+    if (!snapshot.exists()) return;
+    orderCache.set(snapshot.key, mapOrderSnapshot(snapshot));
+    scheduleEmit();
+  };
+
+  const removeOrderFromCache = (snapshot) => {
+    orderCache.delete(snapshot.key);
+    scheduleEmit();
+  };
+
+  const resolveInitialSnapshot = (snapshot) => {
+    if (disposed || initialSnapshotResolved) return;
+    initialSnapshotResolved = true;
+    if (snapshot.exists()) {
+      Object.entries(snapshot.val()).forEach(([firebaseKey, data]) => {
+        orderCache.set(firebaseKey, { ...data, id: firebaseKey });
+      });
+    }
+    emit();
+  };
+
+  const handleError = (error) => {
+    console.error("subscribeToOrders: Error:", error);
+    if (!disposed) callback(sortOrdersByTimestampDesc(Array.from(orderCache.values())));
+  };
+
+  const unsubInitial = onValue(
+    ordersQuery,
+    resolveInitialSnapshot,
+    handleError,
+    { onlyOnce: true },
+  );
+  const unsubAdded = onChildAdded(ordersQuery, upsertOrder, handleError);
+  const unsubChanged = onChildChanged(ordersQuery, upsertOrder, handleError);
+  const unsubRemoved = onChildRemoved(ordersQuery, removeOrderFromCache, handleError);
+
+  return () => {
+    disposed = true;
+    if (emitTimer) {
+      clearTimeout(emitTimer);
+    }
+    unsubInitial();
+    unsubAdded();
+    unsubChanged();
+    unsubRemoved();
+  };
 };
 
-export const subscribeToTableOrders = (tableNumber, callback) => {
-  const tableOrdersRef = query(
+export const subscribeToTableOrders = (accessCode, callback, options = {}) => {
+  if (!isNonEmptyString(accessCode)) {
+    callback([]);
+    return () => {};
+  }
+  const limit = toSafeLimit(options.limit, DEFAULT_TABLE_ORDERS_LIMIT);
+  const tableOrdersQuery = query(
     ordersRef,
-    orderByChild("table"),
-    equalTo(Number(tableNumber)),
+    orderByChild("accessCode"),
+    equalTo(String(accessCode).trim()),
+    limitToLast(limit),
   );
+  const orderCache = new Map();
+  let disposed = false;
+  let emitTimer = null;
+  let initialSnapshotResolved = false;
 
-  return onValue(
-    tableOrdersRef,
-    (snapshot) => {
-      if (snapshot.exists()) {
-        const orders = Object.entries(snapshot.val()).map(([firebaseKey, data]) => ({
-          ...data,
-          id: firebaseKey,
-        }));
-        callback(orders);
-      } else {
-        callback([]);
-      }
-    },
-    (error) => {
-      console.error("subscribeToTableOrders: Error:", error);
-      callback([]);
-    },
+  const emit = () => {
+    if (disposed) return;
+    callback(sortOrdersByTimestampDesc(Array.from(orderCache.values())));
+  };
+
+  const scheduleEmit = () => {
+    if (disposed || emitTimer) return;
+    emitTimer = setTimeout(() => {
+      emitTimer = null;
+      emit();
+    }, 16);
+  };
+
+  const upsertOrder = (snapshot) => {
+    if (!snapshot.exists()) return;
+    orderCache.set(snapshot.key, mapOrderSnapshot(snapshot));
+    scheduleEmit();
+  };
+
+  const removeOrderFromCache = (snapshot) => {
+    orderCache.delete(snapshot.key);
+    scheduleEmit();
+  };
+
+  const resolveInitialSnapshot = (snapshot) => {
+    if (disposed || initialSnapshotResolved) return;
+    initialSnapshotResolved = true;
+    if (snapshot.exists()) {
+      Object.entries(snapshot.val()).forEach(([firebaseKey, data]) => {
+        orderCache.set(firebaseKey, { ...data, id: firebaseKey });
+      });
+    }
+    emit();
+  };
+
+  const handleError = (error) => {
+    console.error("subscribeToTableOrders: Error:", error);
+    if (!disposed) callback(sortOrdersByTimestampDesc(Array.from(orderCache.values())));
+  };
+
+  const unsubInitial = onValue(
+    tableOrdersQuery,
+    resolveInitialSnapshot,
+    handleError,
+    { onlyOnce: true },
   );
+  const unsubAdded = onChildAdded(tableOrdersQuery, upsertOrder, handleError);
+  const unsubChanged = onChildChanged(tableOrdersQuery, upsertOrder, handleError);
+  const unsubRemoved = onChildRemoved(tableOrdersQuery, removeOrderFromCache, handleError);
+
+  return () => {
+    disposed = true;
+    if (emitTimer) {
+      clearTimeout(emitTimer);
+    }
+    unsubInitial();
+    unsubAdded();
+    unsubChanged();
+    unsubRemoved();
+  };
 };
 
 // ============================================================
@@ -205,18 +379,34 @@ const DEFAULT_TABLES = Array.from({ length: 20 }, (_, i) => ({
   name: `Table ${i + 1}`,
   capacity: 4,
   active: true,
+  accessCode: createRandomToken(),
 }));
 
 const tablesRef = ref(database, "tables");
+const normalizeTable = (table, fallbackId) => ({
+  ...table,
+  id: table?.id ?? fallbackId,
+  number: Number(table?.number ?? fallbackId) || fallbackId,
+  name: String(table?.name || `Table ${fallbackId}`),
+  capacity: Number(table?.capacity ?? 4) || 4,
+  active: table?.active !== false,
+  accessCode: isNonEmptyString(table?.accessCode)
+    ? String(table.accessCode).trim()
+    : createRandomToken(),
+});
+
+export const ensureTablesHaveAccessCodes = (tables = []) =>
+  tables.map((table, index) => normalizeTable(table, index + 1));
 
 export const getTables = () => {
-  return DEFAULT_TABLES;
+  return ensureTablesHaveAccessCodes(DEFAULT_TABLES);
 };
 
 export const saveTables = async (tables) => {
+  const normalizedTables = ensureTablesHaveAccessCodes(tables);
   await set(
     tablesRef,
-    tables.reduce((acc, table) => {
+    normalizedTables.reduce((acc, table) => {
       acc[table.id] = table;
       return acc;
     }, {}),
@@ -227,17 +417,32 @@ export const saveTables = async (tables) => {
 export const subscribeToTables = (callback) => {
   return onValue(
     tablesRef,
-    (snapshot) => {
+    async (snapshot) => {
       if (snapshot.exists()) {
-        const tables = Object.entries(snapshot.val()).map(([id, data]) => ({ ...data, id }));
+        const rawTables = Object.entries(snapshot.val()).map(([id, data]) => ({
+          ...data,
+          id,
+        }));
+        const tables = ensureTablesHaveAccessCodes(rawTables);
         callback(tables);
+
+        const missingAccessCode = rawTables.some(
+          (table) => !isNonEmptyString(table?.accessCode),
+        );
+        if (missingAccessCode) {
+          try {
+            await saveTables(tables);
+          } catch (error) {
+            console.error("Firebase tables backfill error:", error);
+          }
+        }
       } else {
-        callback(DEFAULT_TABLES);
+        callback(ensureTablesHaveAccessCodes(DEFAULT_TABLES));
       }
     },
     (error) => {
       console.error("Firebase tables subscription error:", error);
-      callback(DEFAULT_TABLES);
+      callback(ensureTablesHaveAccessCodes(DEFAULT_TABLES));
     },
   );
 };

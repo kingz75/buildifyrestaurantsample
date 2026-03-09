@@ -32,15 +32,6 @@ export const STATUS_COLORS = {
 };
 
 // ============================================================
-// ADMIN USERS
-// ============================================================
-export const ADMIN_USERS = [
-  { username: "owner", password: "123", role: "Owner" },
-  { username: "manager", password: "123", role: "Manager" },
-  { username: "staff", password: "123", role: "Staff" },
-];
-
-// ============================================================
 // PROMO CODES
 // ============================================================
 export const PROMO_CODES = { WELCOME10: 10, FEAST20: 20, VIP50: 50 };

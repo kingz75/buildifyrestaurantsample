@@ -1,16 +1,16 @@
 import StaffAccessGate from "../auth/StaffAccessGate";
-import AdminDashboard from "./AdminDashboard";
+import KitchenView from "./KitchenView";
 
-export default function AdminApp() {
+export default function KitchenApp() {
   return (
     <StaffAccessGate
-      title="Admin Portal"
+      title="Kitchen Access"
       subtitle="Grand Table Restaurant"
       description="Sign in with a Firebase staff account that is allowlisted in /staffMembers."
-      loadingLabel="Loading admin access..."
+      loadingLabel="Loading kitchen access..."
     >
       {({ user, onLogout }) => (
-        <AdminDashboard user={user} onLogout={onLogout} />
+        <KitchenView user={user} onLogout={onLogout} />
       )}
     </StaffAccessGate>
   );
