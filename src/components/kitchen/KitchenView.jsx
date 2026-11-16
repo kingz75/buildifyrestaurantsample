@@ -1,11 +1,16 @@
 import { useEffect, useState } from "react";
-import { ORDER_STATUSES, STATUS_COLORS } from "../../data/constants";
+import {
+  ORDER_STATUSES,
+  ONLINE_ORDER_STATUSES,
+  STATUS_COLORS,
+} from "../../data/constants";
 import {
   getOrderLock,
   saveNotification,
   subscribeToOrders,
   timeAgo,
   updateOrder,
+  ONLINE_DELIVERY_TABLE,
 } from "../../utils/storage";
 import MessageModal from "../common/MessageModal";
 
@@ -15,7 +20,19 @@ export default function KitchenView({ user, onLogout }) {
   const [bootDelayDone, setBootDelayDone] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [modalMessage, setModalMessage] = useState(null);
-  const activeStatuses = ["Confirmed", "Preparing"];
+
+  // Active statuses for dine-in orders
+  const dineInStatuses = ["Confirmed", "Preparing"];
+  // Active statuses for online delivery orders
+  const onlineStatuses = ["Pending", "Preparing"];
+
+  // Check if order is online delivery
+  // Online orders: have type='delivery' OR table number is 0 (Online Delivery table)
+  const isOnlineOrder = (order) => {
+    return (
+      order.type === "delivery" || order.table === ONLINE_DELIVERY_TABLE.number
+    );
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => setBootDelayDone(true), 900);
@@ -24,14 +41,34 @@ export default function KitchenView({ user, onLogout }) {
 
   useEffect(() => {
     setOrdersLoaded(false);
-    const unsub = subscribeToOrders((allOrders) => {
-      setOrders(
-        allOrders.filter((order) => activeStatuses.includes(order.status) && order.items),
-      );
-      setOrdersLoaded(true);
-    }, { limit: 60 });
+    const unsub = subscribeToOrders(
+      (allOrders) => {
+        // Filter orders that are in active statuses for either type
+        const filtered = allOrders.filter((order) => {
+          if (!order.items) return false;
+          const isOnline = isOnlineOrder(order);
+          const activeStatuses = isOnline ? onlineStatuses : dineInStatuses;
+          return activeStatuses.includes(order.status);
+        });
+        setOrders(filtered);
+        setOrdersLoaded(true);
+      },
+      { limit: 60 },
+    );
     return () => unsub();
   }, []);
+
+  // Get the appropriate status array based on order type
+  const getStatusArray = (order) => {
+    const isOnline = isOnlineOrder(order);
+    return isOnline ? ONLINE_ORDER_STATUSES : ORDER_STATUSES;
+  };
+
+  // Get the display label for the table
+  const getTableLabel = (order) => {
+    const isOnline = isOnlineOrder(order);
+    return isOnline ? "Online Delivery" : `Table #${order.table}`;
+  };
 
   const advance = async (id) => {
     const order = orders.find((candidate) => candidate.id === id);
@@ -46,17 +83,19 @@ export default function KitchenView({ user, onLogout }) {
       return;
     }
 
-    const statusIndex = ORDER_STATUSES.indexOf(order.status);
+    const statusArray = getStatusArray(order);
+    const statusIndex = statusArray.indexOf(order.status);
     const newStatus =
-      ORDER_STATUSES[Math.min(statusIndex + 1, ORDER_STATUSES.length - 1)];
+      statusArray[Math.min(statusIndex + 1, statusArray.length - 1)];
 
     await updateOrder(id, { status: newStatus });
 
     if (oldStatus !== newStatus) {
+      const tableLabel = getTableLabel(order);
       saveNotification({
         type: "kitchen_status",
         title: "Kitchen Update",
-        message: `Table ${order.table}: ${oldStatus} -> ${newStatus}`,
+        message: `${tableLabel}: ${oldStatus} -> ${newStatus}`,
         table: order.table,
         orderId: id,
       });
@@ -100,7 +139,7 @@ export default function KitchenView({ user, onLogout }) {
             Kitchen Display
           </div>
           <div style={{ fontSize: "12px", color: muted, marginTop: "2px" }}>
-            {user?.role || "Staff"}  | Live Orders
+            {user?.role || "Staff"} | Live Orders
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
@@ -185,120 +224,182 @@ export default function KitchenView({ user, onLogout }) {
             gap: "16px",
           }}
         >
-          {orders.map((order) => (
-            <div
-              key={order.id}
-              style={{
-                background: surface,
-                border: `2px solid ${STATUS_COLORS[order.status]}`,
-                borderRadius: "12px",
-                padding: "16px",
-                boxShadow: "0 4px 6px rgba(0,0,0,0.05)",
-              }}
-            >
+          {orders.map((order) => {
+            const isOnline = isOnlineOrder(order);
+            const borderColor = isOnline
+              ? "#3b82f6"
+              : STATUS_COLORS[order.status];
+            const accentColor = isOnline ? "#3b82f6" : "#ff9500";
+            return (
               <div
+                key={order.id}
                 style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  marginBottom: "12px",
+                  background: surface,
+                  border: `2px solid ${borderColor}`,
+                  borderRadius: "12px",
+                  padding: "16px",
+                  boxShadow: "0 4px 6px rgba(0,0,0,0.05)",
+                  position: "relative",
                 }}
               >
-                <div
-                  style={{
-                    fontSize: "20px",
-                    fontWeight: "700",
-                    color: "#ff9500",
-                  }}
-                >
-                  Table #{order.table}
-                </div>
-                <div
-                  style={{
-                    background: STATUS_COLORS[order.status] + "33",
-                    color: STATUS_COLORS[order.status],
-                    padding: "4px 10px",
-                    borderRadius: "6px",
-                    fontSize: "12px",
-                    fontWeight: "700",
-                  }}
-                >
-                  {order.status}
-                </div>
-              </div>
-              <div
-                style={{
-                  color: muted,
-                  fontSize: "11px",
-                  marginBottom: "10px",
-                }}
-              >
-                {timeAgo(order.timestamp)}
-              </div>
-              {order.items.map((item) => (
-                <div
-                  key={item.id}
-                  style={{
-                    display: "flex",
-                    gap: "8px",
-                    marginBottom: "6px",
-                    fontSize: "14px",
-                  }}
-                >
-                  <span
+                {isOnline && (
+                  <div
                     style={{
-                      color: "#ff9500",
+                      position: "absolute",
+                      top: "8px",
+                      right: "8px",
+                      background: "#3b82f6",
+                      color: "#fff",
+                      padding: "2px 10px",
+                      borderRadius: "10px",
+                      fontSize: "10px",
                       fontWeight: "700",
-                      minWidth: "24px",
+                      letterSpacing: "0.5px",
                     }}
                   >
-                    x{item.qty}
-                  </span>
-                  <span style={{ color: text }}>{item.name}</span>
-                </div>
-              ))}
-              {order.specialInstructions && (
+                    ONLINE
+                  </div>
+                )}
                 <div
                   style={{
-                    marginTop: "10px",
-                    background: "#ff950011",
-                    border: "1px solid #ff950033",
-                    borderRadius: "6px",
-                    padding: "8px",
-                    fontSize: "12px",
-                    color: darkMode ? "#ffbb66" : "#af6600",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    marginBottom: "12px",
                   }}
                 >
-                  Note: {order.specialInstructions}
+                  <div
+                    style={{
+                      fontSize: "20px",
+                      fontWeight: "700",
+                      color: accentColor,
+                    }}
+                  >
+                    {isOnline
+                      ? `🛵 ${order.customer?.name || "Online Delivery"}`
+                      : `🍽️ ${getTableLabel(order)}`}
+                  </div>
+                  <div
+                    style={{
+                      background: STATUS_COLORS[order.status] + "33",
+                      color: STATUS_COLORS[order.status],
+                      padding: "4px 10px",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      fontWeight: "700",
+                    }}
+                  >
+                    {order.status}
+                  </div>
                 </div>
-              )}
-              <button
-                onClick={() => advance(order.id)}
-                style={{
-                  width: "100%",
-                  marginTop: "14px",
-                  background: STATUS_COLORS[order.status],
-                  border: "none",
-                  color: "#fff",
-                  padding: "10px",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                  fontWeight: "700",
-                  fontFamily: "inherit",
-                }}
-              >
-                Mark as{" "}
-                {
-                  ORDER_STATUSES[
-                    Math.min(
-                      ORDER_STATUSES.indexOf(order.status) + 1,
-                      ORDER_STATUSES.length - 1,
-                    )
-                  ]
-                }{" "}
-                {"->"}
-              </button>
-            </div>
-          ))}
+                {isOnline && order.customer?.address && (
+                  <div
+                    style={{
+                      fontSize: "11px",
+                      color: muted,
+                      marginBottom: "6px",
+                      display: "flex",
+                      gap: "4px",
+                      alignItems: "center",
+                    }}
+                  >
+                    <span>📍</span>
+                    <span>{order.customer.address}</span>
+                  </div>
+                )}
+                <div
+                  style={{
+                    color: muted,
+                    fontSize: "11px",
+                    marginBottom: "10px",
+                  }}
+                >
+                  {timeAgo(order.timestamp)}
+                </div>
+                {order.items.map((item) => (
+                  <div
+                    key={item.id}
+                    style={{
+                      display: "flex",
+                      gap: "8px",
+                      marginBottom: "6px",
+                      fontSize: "14px",
+                    }}
+                  >
+                    <span
+                      style={{
+                        color: accentColor,
+                        fontWeight: "700",
+                        minWidth: "24px",
+                      }}
+                    >
+                      x{item.qty}
+                    </span>
+                    <span style={{ color: text }}>{item.name}</span>
+                  </div>
+                ))}
+                {order.specialInstructions && (
+                  <div
+                    style={{
+                      marginTop: "10px",
+                      background: "#ff950011",
+                      border: "1px solid #ff950033",
+                      borderRadius: "6px",
+                      padding: "8px",
+                      fontSize: "12px",
+                      color: darkMode ? "#ffbb66" : "#af6600",
+                      wordBreak: "break-word",
+                      overflowWrap: "break-word",
+                    }}
+                  >
+                    Note: {order.specialInstructions}
+                  </div>
+                )}
+                {isOnline && order.customer?.notes && (
+                  <div
+                    style={{
+                      marginTop: order.specialInstructions ? "6px" : "10px",
+                      background: "#3b82f611",
+                      border: "1px solid #3b82f633",
+                      borderRadius: "6px",
+                      padding: "8px",
+                      fontSize: "12px",
+                      color: darkMode ? "#93c5fd" : "#2563eb",
+                      wordBreak: "break-word",
+                      overflowWrap: "break-word",
+                    }}
+                  >
+                    📝 {order.customer.notes}
+                  </div>
+                )}
+                <button
+                  onClick={() => advance(order.id)}
+                  style={{
+                    width: "100%",
+                    marginTop: "14px",
+                    background: STATUS_COLORS[order.status],
+                    border: "none",
+                    color: "#fff",
+                    padding: "10px",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    fontWeight: "700",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  Mark as{" "}
+                  {
+                    getStatusArray(order)[
+                      Math.min(
+                        getStatusArray(order).indexOf(order.status) + 1,
+                        getStatusArray(order).length - 1,
+                      )
+                    ]
+                  }{" "}
+                  {"->"}
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
       <MessageModal

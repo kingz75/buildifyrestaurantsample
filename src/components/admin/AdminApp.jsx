@@ -4,9 +4,9 @@ import AdminDashboard from "./AdminDashboard";
 export default function AdminApp() {
   return (
     <StaffAccessGate
-      title="Admin Portal"
+      title="Staff Portal"
       subtitle="Grand Table Restaurant"
-      description="Sign in with a Firebase staff account that is allowlisted in /staffMembers."
+      description="Sign in with a staff account."
       loadingLabel="Loading admin access..."
     >
       {({ user, onLogout }) => (

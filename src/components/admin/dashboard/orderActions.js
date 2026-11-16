@@ -41,10 +41,14 @@ export const updateOrderStatusWithGuard = async ({
   if (order && previousStatus !== status) {
     saveNotification({
       type: "status_change",
-      title: "Order Status Updated",
-      message: `Table ${order.table}: ${previousStatus} -> ${status}`,
-      table: order.table,
-      orderId,
+      title:
+        status === "Ready"
+          ? order.type === "delivery"
+            ? "Ready for Delivery"
+            : "Ready to Serve"
+          : "Order Status Updated",
+      message: `Order #${orderId.slice(-6).toUpperCase()} is now ${status}`,
+      timestamp: Date.now(),
     });
   }
 };

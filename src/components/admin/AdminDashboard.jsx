@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef } from "react";
-import { ORDER_STATUSES, STATUS_COLORS } from "../../data/constants";
+import {
+  ORDER_STATUSES,
+  ONLINE_ORDER_STATUSES,
+  STATUS_COLORS,
+} from "../../data/constants";
 import {
   getMenuItems,
   saveMenu,
@@ -24,10 +28,15 @@ import {
   getBillingSettings,
   saveBillingSettings,
   subscribeToBillingSettings,
+  getOnlineCharges,
+  saveOnlineCharges,
+  subscribeToOnlineCharges,
   updateOrder,
+  ONLINE_DELIVERY_TABLE,
 } from "../../utils/storage";
 import ItemForm from "./ItemForm";
 import QRCodesTab from "./QRCodesTab";
+import OnlineOrdersTab from "./OnlineOrdersTab";
 import { getOrderBreakdown } from "../../utils/billing";
 import AnalyticsTab from "./dashboard/AnalyticsTab";
 import BillingConfigTab from "./dashboard/BillingConfigTab";
@@ -42,7 +51,9 @@ export default function AdminDashboard({ user, onLogout }) {
     id: String(biller.id || `biller_${index}`),
     name: String(biller.name || "").trim() || `Biller ${index + 1}`,
     amount:
-      Number(biller.amount || 0) === 0 ? "" : String(Number(biller.amount || 0)),
+      Number(biller.amount || 0) === 0
+        ? ""
+        : String(Number(biller.amount || 0)),
     percent:
       Number(biller.percent || 0) === 0
         ? ""
@@ -57,18 +68,21 @@ export default function AdminDashboard({ user, onLogout }) {
   });
 
   const toBillingPayload = (draft = {}) => ({
-    customBillers: (Array.isArray(draft.customBillers) ? draft.customBillers : []).map(
-      (biller, index) => ({
-        id: String(biller.id || `biller_${index}`),
-        name: String(biller.name || "").trim() || `Biller ${index + 1}`,
-        amount: Number(biller.amount || 0),
-        percent: Number(biller.percent || 0),
-        active: biller.active !== false,
-      }),
-    ),
+    customBillers: (Array.isArray(draft.customBillers)
+      ? draft.customBillers
+      : []
+    ).map((biller, index) => ({
+      id: String(biller.id || `biller_${index}`),
+      name: String(biller.name || "").trim() || `Biller ${index + 1}`,
+      amount: Number(biller.amount || 0),
+      percent: Number(biller.percent || 0),
+      active: biller.active !== false,
+    })),
   });
 
-  const [tab, setTab] = useState("orders");
+  const [tab, setTab] = useState(
+    user?.role === "Kitchen" ? "kitchen" : "orders",
+  );
   const [orders, setOrders] = useState([]);
   const [menuItems, setMenuItems] = useState(getMenuItems);
   const [categories, setCategories] = useState(getCategories);
@@ -87,7 +101,8 @@ export default function AdminDashboard({ user, onLogout }) {
   const [showAddItem, setShowAddItem] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [showWaiterCalls, setShowWaiterCalls] = useState(false);
-  const [showReadyOrders, setShowReadyOrders] = useState(false);
+  const [showReadyOrders, setShowReadyOrders] = useState(true);
+  const [showReadyOnlineOrders, setShowReadyOnlineOrders] = useState(true);
   const [editingTable, setEditingTable] = useState(null);
   const [showAddTable, setShowAddTable] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -105,12 +120,30 @@ export default function AdminDashboard({ user, onLogout }) {
   const [savingBillingSettings, setSavingBillingSettings] = useState(false);
   const [billingSaveState, setBillingSaveState] = useState("idle");
   const billingSaveResetTimerRef = useRef(null);
+  const [onlineChargesDraft, setOnlineChargesDraft] =
+    useState(getOnlineCharges);
+  const [onlineChargesLive, setOnlineChargesLive] = useState(getOnlineCharges);
+  const [savingOnlineCharges, setSavingOnlineCharges] = useState(false);
+  const [onlineChargesSaveState, setOnlineChargesSaveState] = useState("idle");
+  const onlineChargesSaveResetTimerRef = useRef(null);
+  const [onlineBillersDraft, setOnlineBillersDraft] = useState(() => {
+    const saved = getOnlineCharges();
+    return Array.isArray(saved.billers) ? saved.billers : [];
+  });
+  const [onlineBillersLive, setOnlineBillersLive] = useState(() => {
+    const saved = getOnlineCharges();
+    return Array.isArray(saved.billers) ? saved.billers : [];
+  });
+  const [savingOnlineBillers, setSavingOnlineBillers] = useState(false);
+  const [onlineBillersSaveState, setOnlineBillersSaveState] = useState("idle");
+  const onlineBillersSaveResetTimerRef = useRef(null);
   const [modalState, setModalState] = useState(null);
   const shouldSubscribeMenuData = tab === "menu";
   const shouldSubscribeTables =
     tab === "orders" || tab === "tables" || tab === "qrcodes";
   const shouldSubscribeBillingSettings =
     tab === "billing" || tab === "analytics";
+  const shouldSubscribeOnlineCharges = tab === "billing";
 
   const closeModal = () => setModalState(null);
   const showInfoModal = (title, message) => {
@@ -146,8 +179,9 @@ export default function AdminDashboard({ user, onLogout }) {
 
   // Mark as paid function
   const markPaid = (id) => {
-    markOrderAsPaid(id, setOrders, updateOrder)
-      .catch((error) => console.error("markPaid: Error:", error));
+    markOrderAsPaid(id, setOrders, updateOrder).catch((error) =>
+      console.error("markPaid: Error:", error),
+    );
   };
 
   // Make function available globally for testing
@@ -176,10 +210,28 @@ export default function AdminDashboard({ user, onLogout }) {
     return () => unsubBillingSettings();
   }, [shouldSubscribeBillingSettings]);
 
+  useEffect(() => {
+    if (!shouldSubscribeOnlineCharges) return undefined;
+    const unsubOnlineCharges = subscribeToOnlineCharges((charges) => {
+      setOnlineChargesLive(charges);
+      setOnlineChargesDraft(charges);
+      setOnlineBillersDraft(Array.isArray(charges.billers) ? charges.billers : []);
+      setOnlineBillersLive(Array.isArray(charges.billers) ? charges.billers : []);
+      setOnlineChargesSaveState("idle");
+    });
+    return () => unsubOnlineCharges();
+  }, [shouldSubscribeOnlineCharges]);
+
   useEffect(
     () => () => {
       if (billingSaveResetTimerRef.current) {
         clearTimeout(billingSaveResetTimerRef.current);
+      }
+      if (onlineChargesSaveResetTimerRef.current) {
+        clearTimeout(onlineChargesSaveResetTimerRef.current);
+      }
+      if (onlineBillersSaveResetTimerRef.current) {
+        clearTimeout(onlineBillersSaveResetTimerRef.current);
       }
     },
     [],
@@ -193,10 +245,13 @@ export default function AdminDashboard({ user, onLogout }) {
   // Keep a capped, recent-orders listener for the dashboard.
   useEffect(() => {
     setOrdersLoaded(false);
-    const unsubOrders = subscribeToOrders((all) => {
-      setOrders(all);
-      setOrdersLoaded(true);
-    }, { limit: 80 });
+    const unsubOrders = subscribeToOrders(
+      (all) => {
+        setOrders(all);
+        setOrdersLoaded(true);
+      },
+      { limit: 80 },
+    );
 
     return () => {
       unsubOrders();
@@ -248,6 +303,17 @@ export default function AdminDashboard({ user, onLogout }) {
     };
   }, [shouldSubscribeTables]);
 
+  // Ensure Online Delivery Table exists for permissions
+  useEffect(() => {
+    if (
+      tables.length > 0 &&
+      !tables.some((t) => t.number === 0 || t.id === "delivery")
+    ) {
+      console.log("Bootstrapping Online Delivery table...");
+      saveTables([ONLINE_DELIVERY_TABLE, ...tables]);
+    }
+  }, [tables]);
+
   const handleAddCategory = () => {
     if (newCategoryName.trim()) {
       const newCat = newCategoryName.trim();
@@ -277,7 +343,9 @@ export default function AdminDashboard({ user, onLogout }) {
       confirmLabel: "Delete",
       confirmTone: "danger",
       onConfirm: () => {
-        const updatedCategories = categories.filter((c) => c !== categoryToDelete);
+        const updatedCategories = categories.filter(
+          (c) => c !== categoryToDelete,
+        );
         setCategories(updatedCategories);
         saveCategories(updatedCategories);
       },
@@ -311,8 +379,8 @@ export default function AdminDashboard({ user, onLogout }) {
         setItemTags(updatedTags);
         saveItemTags(updatedTags);
 
-        const hasTagInMenu = menuItems.some((item) =>
-          Array.isArray(item.tags) && item.tags.includes(tagToDelete),
+        const hasTagInMenu = menuItems.some(
+          (item) => Array.isArray(item.tags) && item.tags.includes(tagToDelete),
         );
         if (hasTagInMenu) {
           const updatedMenu = menuItems.map((item) => ({
@@ -339,16 +407,31 @@ export default function AdminDashboard({ user, onLogout }) {
         saveNotification,
       });
     } catch (error) {
-      showInfoModal("Update Blocked", error?.message || "Could not update order.");
+      showInfoModal(
+        "Update Blocked",
+        error?.message || "Could not update order.",
+      );
     }
   };
 
-  const realOrders = orders.filter((o) => o.items);
+  const realOrders = orders.filter((o) => o.items && o.type !== "delivery");
+  const onlineOrders = orders.filter((o) => o.items && o.type === "delivery");
   const waiterCalls = orders.filter((o) => o.type === "waiter_call");
   const readyOrders = realOrders.filter((o) => o.status === "Ready");
-  const kitchenOrders = realOrders.filter((o) =>
-    ["Pending", "Confirmed", "Preparing"].includes(o.status),
-  );
+  const readyOnlineOrders = onlineOrders.filter((o) => o.status === "Ready");
+  const kitchenOrders = [...realOrders, ...onlineOrders].filter((o) => {
+    const isOnline = o.type === "delivery";
+    if (isOnline) {
+      return [
+        "Pending",
+        "Preparing",
+        "Ready",
+        "Out for Delivery",
+        "Delivered",
+      ].includes(o.status);
+    }
+    return ["Pending", "Confirmed", "Preparing", "Ready"].includes(o.status);
+  });
   const filteredOrders = realOrders.filter(
     (o) =>
       (!filterTable || String(o.table) === filterTable) &&
@@ -360,30 +443,33 @@ export default function AdminDashboard({ user, onLogout }) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayOrders = realOrders.filter((o) => o.timestamp >= today.getTime());
+  const todayOnlineOrders = onlineOrders.filter((o) => o.timestamp >= today.getTime());
   const paidOrders = realOrders.filter((o) => o.paymentStatus === "Paid");
+  const paidOnlineOrders = onlineOrders.filter((o) => o.paymentStatus === "Paid");
   const unpaidOrders = realOrders.filter((o) => o.paymentStatus === "Unpaid");
-  const todayRevenue = todayOrders.reduce(
+  const unpaidOnlineOrders = onlineOrders.filter((o) => o.paymentStatus === "Unpaid");
+  const todayRevenue = [...todayOrders, ...todayOnlineOrders].reduce(
     (sum, order) =>
       sum +
       (order.paymentStatus === "Paid"
-        ? getOrderBreakdown(order, billingSettings).total
+        ? getOrderBreakdown(order, billingSettings, onlineChargesLive).total
         : 0),
     0,
   );
-  const todayPendingRevenue = todayOrders.reduce(
+  const todayPendingRevenue = [...todayOrders, ...todayOnlineOrders].reduce(
     (sum, order) =>
       sum +
       (order.paymentStatus === "Unpaid"
-        ? getOrderBreakdown(order, billingSettings).total
+        ? getOrderBreakdown(order, billingSettings, onlineChargesLive).total
         : 0),
     0,
   );
-  const totalRevenue = paidOrders.reduce(
-    (sum, order) => sum + getOrderBreakdown(order, billingSettings).total,
+  const totalRevenue = [...paidOrders, ...paidOnlineOrders].reduce(
+    (sum, order) => sum + getOrderBreakdown(order, billingSettings, onlineChargesLive).total,
     0,
   );
-  const pendingRevenue = unpaidOrders.reduce(
-    (sum, order) => sum + getOrderBreakdown(order, billingSettings).total,
+  const pendingRevenue = [...unpaidOrders, ...unpaidOnlineOrders].reduce(
+    (sum, order) => sum + getOrderBreakdown(order, billingSettings, onlineChargesLive).total,
     0,
   );
 
@@ -415,20 +501,29 @@ export default function AdminDashboard({ user, onLogout }) {
   const handleCustomBillerFieldChange = (billerId, field, rawValue) => {
     setBillingDraft((prev) => ({
       ...prev,
-      customBillers: (Array.isArray(prev.customBillers) ? prev.customBillers : []).map(
-        (biller) => {
-          if (biller.id !== billerId) return biller;
-          const nextBiller = { ...biller, [field]: rawValue };
-          const numericValue = Number(rawValue);
-          if (field === "amount" && Number.isFinite(numericValue) && numericValue > 0) {
-            nextBiller.percent = "";
-          }
-          if (field === "percent" && Number.isFinite(numericValue) && numericValue > 0) {
-            nextBiller.amount = "";
-          }
-          return nextBiller;
-        },
-      ),
+      customBillers: (Array.isArray(prev.customBillers)
+        ? prev.customBillers
+        : []
+      ).map((biller) => {
+        if (biller.id !== billerId) return biller;
+        const nextBiller = { ...biller, [field]: rawValue };
+        const numericValue = Number(rawValue);
+        if (
+          field === "amount" &&
+          Number.isFinite(numericValue) &&
+          numericValue > 0
+        ) {
+          nextBiller.percent = "";
+        }
+        if (
+          field === "percent" &&
+          Number.isFinite(numericValue) &&
+          numericValue > 0
+        ) {
+          nextBiller.amount = "";
+        }
+        return nextBiller;
+      }),
     }));
     setBillingSaveState("idle");
   };
@@ -442,9 +537,10 @@ export default function AdminDashboard({ user, onLogout }) {
       onConfirm: () => {
         setBillingDraft((prev) => ({
           ...prev,
-          customBillers: (Array.isArray(prev.customBillers) ? prev.customBillers : []).filter(
-            (biller) => biller.id !== billerId,
-          ),
+          customBillers: (Array.isArray(prev.customBillers)
+            ? prev.customBillers
+            : []
+          ).filter((biller) => biller.id !== billerId),
         }));
         setBillingSaveState("idle");
       },
@@ -452,18 +548,23 @@ export default function AdminDashboard({ user, onLogout }) {
   };
 
   const handleToggleCustomBiller = (billerId, billerName = "this biller") => {
-    const target = (Array.isArray(billingDraft.customBillers) ? billingDraft.customBillers : [])
-      .find((biller) => biller.id === billerId);
+    const target = (
+      Array.isArray(billingDraft.customBillers)
+        ? billingDraft.customBillers
+        : []
+    ).find((biller) => biller.id === billerId);
     const isActive = target?.active !== false;
     const applyToggle = () => {
       setBillingDraft((prev) => ({
         ...prev,
-        customBillers: (Array.isArray(prev.customBillers) ? prev.customBillers : []).map(
-          (biller) =>
-            biller.id === billerId
-              ? { ...biller, active: biller.active === false }
-              : biller,
-          ),
+        customBillers: (Array.isArray(prev.customBillers)
+          ? prev.customBillers
+          : []
+        ).map((biller) =>
+          biller.id === billerId
+            ? { ...biller, active: biller.active === false }
+            : biller,
+        ),
       }));
       setBillingSaveState("idle");
     };
@@ -488,6 +589,14 @@ export default function AdminDashboard({ user, onLogout }) {
   const showBillingSaveButton =
     hasBillingChanges || savingBillingSettings || billingSaveState === "saved";
 
+  const hasOnlineChargesChanges =
+    JSON.stringify(onlineChargesDraft) !== JSON.stringify(onlineChargesLive) ||
+    JSON.stringify(onlineBillersDraft) !== JSON.stringify(onlineBillersLive);
+  const showOnlineChargesSaveButton =
+    hasOnlineChargesChanges ||
+    savingOnlineCharges ||
+    onlineChargesSaveState === "saved";
+
   const handleSaveBillingSettings = async () => {
     setSavingBillingSettings(true);
     setBillingSaveState("saving");
@@ -509,6 +618,153 @@ export default function AdminDashboard({ user, onLogout }) {
       setBillingSaveState("idle");
     } finally {
       setSavingBillingSettings(false);
+    }
+  };
+
+  const handleSaveOnlineCharges = async () => {
+    setSavingOnlineCharges(true);
+    setOnlineChargesSaveState("saving");
+    try {
+      const chargesToSave = {
+        ...onlineChargesDraft,
+        billers: onlineBillersDraft,
+      };
+      await saveOnlineCharges(chargesToSave);
+      setOnlineChargesSaveState("saved");
+      if (onlineChargesSaveResetTimerRef.current) {
+        clearTimeout(onlineChargesSaveResetTimerRef.current);
+      }
+      onlineChargesSaveResetTimerRef.current = setTimeout(() => {
+        setOnlineChargesSaveState("idle");
+      }, 1800);
+    } catch (error) {
+      console.error("Failed to save online charges:", error);
+      showInfoModal(
+        "Save Failed",
+        "Could not save online charges. Please try again.",
+      );
+      setOnlineChargesSaveState("idle");
+    } finally {
+      setSavingOnlineCharges(false);
+    }
+  };
+
+  const handleAddOnlineBiller = () => {
+    setOnlineBillersDraft((prev) => [
+      ...(Array.isArray(prev) ? prev : []),
+      {
+        id: `online_biller_${Date.now()}`,
+        name: "New Charge",
+        amount: "",
+        percent: "",
+        active: true,
+      },
+    ]);
+    setOnlineBillersSaveState("idle");
+  };
+
+  const handleOnlineBillerFieldChange = (billerId, field, rawValue) => {
+    setOnlineBillersDraft((prev) =>
+      (Array.isArray(prev) ? prev : []).map((biller) => {
+        if (biller.id !== billerId) return biller;
+        const nextBiller = { ...biller, [field]: rawValue };
+        const numericValue = Number(rawValue);
+        if (
+          field === "amount" &&
+          Number.isFinite(numericValue) &&
+          numericValue > 0
+        ) {
+          nextBiller.percent = "";
+        }
+        if (
+          field === "percent" &&
+          Number.isFinite(numericValue) &&
+          numericValue > 0
+        ) {
+          nextBiller.amount = "";
+        }
+        return nextBiller;
+      }),
+    );
+    setOnlineBillersSaveState("idle");
+  };
+
+  const handleDeleteOnlineBiller = (billerId, billerName = "this charge") => {
+    showConfirmModal({
+      title: "Delete Charge",
+      message: `Delete "${billerName}"?`,
+      confirmLabel: "Delete",
+      confirmTone: "danger",
+      onConfirm: () => {
+        setOnlineBillersDraft((prev) =>
+          (Array.isArray(prev) ? prev : []).filter((biller) => biller.id !== billerId),
+        );
+        setOnlineBillersSaveState("idle");
+      },
+    });
+  };
+
+  const handleToggleOnlineBiller = (billerId, billerName = "this charge") => {
+    const target = (Array.isArray(onlineBillersDraft) ? onlineBillersDraft : []).find(
+      (biller) => biller.id === billerId,
+    );
+    const isActive = target?.active !== false;
+    const applyToggle = () => {
+      setOnlineBillersDraft((prev) =>
+        (Array.isArray(prev) ? prev : []).map((biller) =>
+          biller.id === billerId
+            ? { ...biller, active: biller.active === false }
+            : biller,
+        ),
+      );
+      setOnlineBillersSaveState("idle");
+    };
+
+    if (isActive) {
+      showConfirmModal({
+        title: "Deactivate Charge",
+        message: `Deactivate "${billerName}"?`,
+        confirmLabel: "Deactivate",
+        confirmTone: "warning",
+        onConfirm: applyToggle,
+      });
+      return;
+    }
+
+    applyToggle();
+  };
+
+  const hasOnlineBillersChanges =
+    JSON.stringify(onlineBillersDraft) !== JSON.stringify(onlineBillersLive);
+  const showOnlineBillersSaveButton =
+    hasOnlineBillersChanges || savingOnlineBillers || onlineBillersSaveState === "saved";
+
+  const handleSaveOnlineBillers = async () => {
+    setSavingOnlineBillers(true);
+    setOnlineBillersSaveState("saving");
+    try {
+      const updatedCharges = {
+        ...onlineChargesDraft,
+        billers: onlineBillersDraft,
+      };
+      await saveOnlineCharges(updatedCharges);
+      setOnlineBillersLive(onlineBillersDraft);
+      setOnlineBillersSaveState("saved");
+      if (onlineBillersSaveResetTimerRef.current) {
+        clearTimeout(onlineBillersSaveResetTimerRef.current);
+      }
+      onlineBillersSaveResetTimerRef.current = setTimeout(() => {
+        setOnlineBillersSaveState("idle");
+      }, 1800);
+    } catch (error) {
+      console.error("Failed to save online billers:", error);
+      showInfoModal(
+        "Save Failed",
+        "Could not save online charges. Please try again.",
+      );
+      setOnlineBillersSaveState("idle");
+    } finally {
+      setSavingOnlineBillers(false);
     }
   };
 
@@ -546,8 +802,8 @@ export default function AdminDashboard({ user, onLogout }) {
             <div style={{ fontSize: "18px", fontWeight: "700", color: accent }}>
               🍽️ Grand Table
             </div>
-            <div style={{ fontSize:  "12px", color: muted, marginTop: "4px" }}>
-              {user.role} 
+            <div style={{ fontSize: "12px", color: muted, marginTop: "4px" }}>
+              {user.role}
             </div>
           </div>
           {[
@@ -555,7 +811,17 @@ export default function AdminDashboard({ user, onLogout }) {
               id: "orders",
               icon: "📋",
               label: "Orders",
-              badge: realOrders.filter((o) => o.status === "Pending").length,
+              badge: realOrders.filter(
+                (o) => o.type !== "delivery" && o.status === "Pending",
+              ).length,
+            },
+            {
+              id: "online_orders",
+              icon: "🌐",
+              label: "Online Orders",
+              badge: onlineOrders.filter(
+                (o) => o.status === "Pending" || o.status === "Preparing",
+              ).length,
             },
             { id: "kitchen", icon: "👨‍🍳", label: "Kitchen View" },
             { id: "menu", icon: "🍴", label: "Menu Management" },
@@ -736,102 +1002,18 @@ export default function AdminDashboard({ user, onLogout }) {
             {waiterCalls.filter(
               (w) => w.timestamp > Date.now() - 300000 && w.status !== "Served",
             ).length > 0 && (
-                <div
-                  style={{
-                    background: "#ff9500" + "22",
-                    border: `1px solid ${"#ff9500"}`,
-                    borderRadius: "8px",
-                    padding: "10px",
-                    marginBottom: "12px",
-                    fontSize: "12px",
-                    color: "#ff9500",
-                    cursor: "pointer",
-                  }}
-                  onClick={() => setShowWaiterCalls(!showWaiterCalls)}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <span>
-                      🔔{" "}
-                      {
-                        waiterCalls.filter(
-                          (w) =>
-                            w.timestamp > Date.now() - 300000 &&
-                            w.status !== "Served",
-                        ).length
-                      }{" "}
-                      waiter call(s)
-                    </span>
-                    <span>{showWaiterCalls ? "▲" : "▼"}</span>
-                  </div>
-                  {showWaiterCalls && (
-                    <div
-                      style={{
-                        marginTop: "8px",
-                        paddingTop: "8px",
-                        borderTop: "1px solid #ff9500",
-                      }}
-                    >
-                      {waiterCalls
-                        .filter(
-                          (w) =>
-                            w.timestamp > Date.now() - 300000 &&
-                            w.status !== "Served",
-                        )
-                        .map((w) => (
-                          <div
-                            key={w.id}
-                            style={{
-                              padding: "4px 0",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                            }}
-                          >
-                            <span>Table {w.table}</span>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                updateOrder(w.id, { status: "Served" });
-                              }}
-                              style={{
-                                background: "#ff9500",
-                                border: "none",
-                                color: "#fff",
-                                padding: "4px 8px",
-                                borderRadius: "4px",
-                                cursor: "pointer",
-                                fontSize: "10px",
-                              }}
-                            >
-                              Mark Served
-                            </button>
-                          </div>
-                        ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-            {/* Ready to Serve Orders */}
-            {readyOrders.length > 0 && (
               <div
                 style={{
-                  background: "#22c55e" + "22",
-                  border: `1px solid ${"#22c55e"}`,
+                  background: "#ff9500" + "22",
+                  border: `1px solid ${"#ff9500"}`,
                   borderRadius: "8px",
                   padding: "10px",
                   marginBottom: "12px",
                   fontSize: "12px",
-                  color: "#22c55e",
+                  color: "#ff9500",
                   cursor: "pointer",
                 }}
-                onClick={() => setShowReadyOrders(!showReadyOrders)}
+                onClick={() => setShowWaiterCalls(!showWaiterCalls)}
               >
                 <div
                   style={{
@@ -840,22 +1022,108 @@ export default function AdminDashboard({ user, onLogout }) {
                     justifyContent: "space-between",
                   }}
                 >
-                  <span>🍽️ {readyOrders.length} ready to serve</span>
+                  <span>
+                    🔔{" "}
+                    {
+                      waiterCalls.filter(
+                        (w) =>
+                          w.timestamp > Date.now() - 300000 &&
+                          w.status !== "Served",
+                      ).length
+                    }{" "}
+                    waiter call(s)
+                  </span>
+                  <span>{showWaiterCalls ? "▲" : "▼"}</span>
+                </div>
+                {showWaiterCalls && (
+                  <div
+                    style={{
+                      marginTop: "8px",
+                      paddingTop: "8px",
+                      borderTop: "1px solid #ff9500",
+                    }}
+                  >
+                    {waiterCalls
+                      .filter(
+                        (w) =>
+                          w.timestamp > Date.now() - 300000 &&
+                          w.status !== "Served",
+                      )
+                      .map((w) => (
+                        <div
+                          key={w.id}
+                          style={{
+                            padding: "4px 0",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                          }}
+                        >
+                          <span>Table {w.table}</span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              updateOrder(w.id, { status: "Served" });
+                            }}
+                            style={{
+                              background: "#ff9500",
+                              border: "none",
+                              color: "#fff",
+                              padding: "4px 8px",
+                              borderRadius: "4px",
+                              cursor: "pointer",
+                              fontSize: "10px",
+                            }}
+                          >
+                            Mark Served
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Ready to Serve Orders */}
+            {readyOrders.length > 0 && (
+              <div
+                style={{
+                  background: "#22c55e" + "11",
+                  border: `1px solid ${"#22c55e"}`,
+                  borderRadius: "12px",
+                  padding: "12px",
+                  marginBottom: "12px",
+                  fontSize: "13px",
+                  color: "#22c55e",
+                  cursor: "pointer",
+                  boxShadow: "0 4px 12px -2px #22c55e22",
+                }}
+                onClick={() => setShowReadyOrders(!showReadyOrders)}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    fontWeight: "800",
+                  }}
+                >
+                  <span>🍽️ {readyOrders.length} Ready to Serve</span>
                   <span>{showReadyOrders ? "▲" : "▼"}</span>
                 </div>
                 {showReadyOrders && (
                   <div
                     style={{
-                      marginTop: "8px",
-                      paddingTop: "8px",
-                      borderTop: "1px solid #22c55e",
+                      marginTop: "10px",
+                      paddingTop: "10px",
+                      borderTop: "1px solid #22c55e33",
                     }}
                   >
                     {readyOrders.map((o) => (
                       <div
                         key={o.id}
                         style={{
-                          padding: "4px 0",
+                          padding: "6px 0",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "space-between",
@@ -865,19 +1133,93 @@ export default function AdminDashboard({ user, onLogout }) {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            updateOrder(o.id, { status: "Served" });
+                            updateOrderStatus(o.id, "Served");
                           }}
                           style={{
                             background: "#22c55e",
                             border: "none",
                             color: "#fff",
-                            padding: "4px 8px",
-                            borderRadius: "4px",
+                            padding: "6px 10px",
+                            borderRadius: "6px",
                             cursor: "pointer",
-                            fontSize: "10px",
+                            fontSize: "11px",
+                            fontWeight: "700",
                           }}
                         >
-                          Served
+                          Mark Served
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Ready for Delivery Orders (Online) - PURPLE */}
+            {readyOnlineOrders.length > 0 && (
+              <div
+                style={{
+                  background: "#a855f7" + "11",
+                  border: `1px solid ${"#a855f7"}`,
+                  borderRadius: "12px",
+                  padding: "12px",
+                  marginBottom: "12px",
+                  fontSize: "13px",
+                  color: "#a855f7",
+                  cursor: "pointer",
+                  boxShadow: "0 4px 12px -2px #a855f722",
+                }}
+                onClick={() => setShowReadyOnlineOrders(!showReadyOnlineOrders)}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    fontWeight: "800",
+                  }}
+                >
+                  <span>🛵 {readyOnlineOrders.length} Ready for Delivery</span>
+                  <span>{showReadyOnlineOrders ? "▲" : "▼"}</span>
+                </div>
+                {showReadyOnlineOrders && (
+                  <div
+                    style={{
+                      marginTop: "10px",
+                      paddingTop: "10px",
+                      borderTop: "1px solid #a855f733",
+                    }}
+                  >
+                    {readyOnlineOrders.map((o) => (
+                      <div
+                        key={o.id}
+                        style={{
+                          padding: "6px 0",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <span style={{ fontWeight: "600" }}>
+                          {o.customer?.name || "Guest"}
+                        </span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            updateOrderStatus(o.id, "Delivered");
+                          }}
+                          style={{
+                            background: "#a855f7",
+                            border: "none",
+                            color: "#fff",
+                            padding: "6px 10px",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                            fontSize: "11px",
+                            fontWeight: "700",
+                          }}
+                        >
+                          Delivered
                         </button>
                       </div>
                     ))}
@@ -961,6 +1303,14 @@ export default function AdminDashboard({ user, onLogout }) {
                 value: realOrders.filter((o) => o.status === "Pending").length,
                 icon: "⏳",
                 color: "#f59e0b",
+              },
+              {
+                label: "Online Pending",
+                value: onlineOrders.filter(
+                  (o) => o.status === "Pending" || o.status === "Preparing",
+                ).length,
+                icon: "🌐",
+                color: "#3b82f6",
               },
             ].map((s) => (
               <div
@@ -1079,157 +1429,186 @@ export default function AdminDashboard({ user, onLogout }) {
                 </div>
               ) : (
                 <div style={{ display: "grid", gap: "12px" }}>
-                  {[...filteredOrders].sort((a, b) => b.timestamp - a.timestamp).map((order) => (
-                    <div
-                      key={order.id}
-                      style={{
-                        background: surface,
-                        border: `1px solid ${border}`,
-                        borderRadius: "12px",
-                        padding: "16px",
-                      }}
-                    >
+                  {[...filteredOrders]
+                    .sort((a, b) => b.timestamp - a.timestamp)
+                    .map((order) => (
                       <div
+                        key={order.id}
                         style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "start",
-                          flexWrap: "wrap",
-                          gap: "8px",
+                          background: surface,
+                          border: `1px solid ${border}`,
+                          borderRadius: "12px",
+                          padding: "16px",
                         }}
                       >
-                        <div>
-                          <div style={{ fontWeight: "700", fontSize: "16px" }}>
-                            Table #{order.table}
-                          </div>
-                          <div
-                            style={{
-                              color: muted,
-                              fontSize: "12px",
-                              marginTop: "2px",
-                            }}
-                          >
-                            {new Date(order.timestamp).toLocaleString()} • #
-                            {order.id}
-                          </div>
-                        </div>
                         <div
                           style={{
                             display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "start",
+                            flexWrap: "wrap",
                             gap: "8px",
-                            alignItems: "center",
+                          }}
+                        >
+                          <div>
+                            <div
+                              style={{
+                                fontWeight: "700",
+                                fontSize: "16px",
+                                color:
+                                  order.type === "delivery"
+                                    ? accent
+                                    : "inherit",
+                              }}
+                            >
+                              {order.type === "delivery"
+                                ? "🛵 Online Delivery"
+                                : `Table #${order.table}`}
+                            </div>
+                            <div
+                              style={{
+                                color: muted,
+                                fontSize: "12px",
+                                marginTop: "2px",
+                              }}
+                            >
+                              {new Date(order.timestamp).toLocaleString()} • #
+                              {order.id}
+                            </div>
+                          </div>
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: "8px",
+                              alignItems: "center",
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <span
+                              style={{
+                                background: STATUS_COLORS[order.status] + "33",
+                                color: STATUS_COLORS[order.status],
+                                padding: "4px 10px",
+                                borderRadius: "20px",
+                                fontSize: "12px",
+                                fontWeight: "600",
+                              }}
+                            >
+                              {order.status}
+                            </span>
+                            <span
+                              style={{
+                                background:
+                                  order.paymentStatus === "Paid"
+                                    ? "#22c55e22"
+                                    : "#f59e0b22",
+                                color:
+                                  order.paymentStatus === "Paid"
+                                    ? "#22c55e"
+                                    : "#f59e0b",
+                                padding: "4px 10px",
+                                borderRadius: "20px",
+                                fontSize: "12px",
+                                fontWeight: "600",
+                              }}
+                            >
+                              {order.paymentStatus}
+                            </span>
+                            <span style={{ color: accent, fontWeight: "700" }}>
+                              {fmt(order.total)}
+                            </span>
+                          </div>
+                        </div>
+                        <div
+                          style={{
+                            marginTop: "10px",
+                            display: "flex",
+                            gap: "6px",
                             flexWrap: "wrap",
                           }}
                         >
-                          <span
-                            style={{
-                              background: STATUS_COLORS[order.status] + "33",
-                              color: STATUS_COLORS[order.status],
-                              padding: "4px 10px",
-                              borderRadius: "20px",
-                              fontSize: "12px",
-                              fontWeight: "600",
-                            }}
-                          >
-                            {order.status}
-                          </span>
-                          <span
-                            style={{
-                              background:
-                                order.paymentStatus === "Paid"
-                                  ? "#22c55e22"
-                                  : "#f59e0b22",
-                              color:
-                                order.paymentStatus === "Paid"
-                                  ? "#22c55e"
-                                  : "#f59e0b",
-                              padding: "4px 10px",
-                              borderRadius: "20px",
-                              fontSize: "12px",
-                              fontWeight: "600",
-                            }}
-                          >
-                            {order.paymentStatus}
-                          </span>
-                          <span style={{ color: accent, fontWeight: "700" }}>
-                            {fmt(order.total)}
-                          </span>
+                          {order.items.map((i) => (
+                            <span
+                              key={i.id}
+                              style={{
+                                background: "#ffffff0a",
+                                border: `1px solid ${border}`,
+                                borderRadius: "6px",
+                                padding: "3px 8px",
+                                fontSize: "12px",
+                                color: muted,
+                              }}
+                            >
+                              {i.qty}× {i.name}
+                            </span>
+                          ))}
                         </div>
-                      </div>
-                      <div
-                        style={{
-                          marginTop: "10px",
-                          display: "flex",
-                          gap: "6px",
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        {order.items.map((i) => (
-                          <span
-                            key={i.id}
+                        {order.specialInstructions && (
+                          <div
                             style={{
-                              background: "#ffffff0a",
-                              border: `1px solid ${border}`,
-                              borderRadius: "6px",
-                              padding: "3px 8px",
+                              marginTop: "8px",
                               fontSize: "12px",
-                              color: muted,
+                              color: "#ff9500",
+                              background: "#ff950011",
+                              padding: "6px 10px",
+                              borderRadius: "6px",
                             }}
                           >
-                            {i.qty}× {i.name}
-                          </span>
-                        ))}
-                      </div>
-                      {order.specialInstructions && (
+                            📝 {order.specialInstructions}
+                          </div>
+                        )}
                         <div
                           style={{
-                            marginTop: "8px",
-                            fontSize: "12px",
-                            color: "#ff9500",
-                            background: "#ff950011",
-                            padding: "6px 10px",
-                            borderRadius: "6px",
+                            marginTop: "12px",
+                            display: "flex",
+                            gap: "8px",
+                            flexWrap: "wrap",
+                            alignItems: "center",
                           }}
                         >
-                          📝 {order.specialInstructions}
-                        </div>
-                      )}
-                      <div
-                        style={{
-                          marginTop: "12px",
-                          display: "flex",
-                          gap: "8px",
-                          flexWrap: "wrap",
-                          alignItems: "center",
-                        }}
-                      >
-                        <select
-                          value={order.status}
-                          onChange={(e) =>
-                            updateOrderStatus(order.id, e.target.value)
-                          }
-                          style={{
-                            background: bg,
-                            border: `1px solid ${border}`,
-                            color: text,
-                            padding: "6px 10px",
-                            borderRadius: "6px",
-                            outline: "none",
-                            fontFamily: "inherit",
-                            fontSize: "12px",
-                          }}
-                        >
-                          {ORDER_STATUSES.map((s) => (
-                            <option key={s}>{s}</option>
-                          ))}
-                        </select>
-                        {order.paymentStatus !== "Paid" && (
-                          <button
-                            onClick={() => markPaid(order.id)}
+                          <select
+                            value={order.status}
+                            onChange={(e) =>
+                              updateOrderStatus(order.id, e.target.value)
+                            }
                             style={{
-                              background: "#22c55e22",
-                              border: "1px solid #22c55e",
-                              color: "#22c55e",
+                              background: bg,
+                              border: `1px solid ${border}`,
+                              color: text,
+                              padding: "6px 10px",
+                              borderRadius: "6px",
+                              outline: "none",
+                              fontFamily: "inherit",
+                              fontSize: "12px",
+                            }}
+                          >
+                            {ORDER_STATUSES.map((s) => (
+                              <option key={s}>{s}</option>
+                            ))}
+                          </select>
+                          {order.paymentStatus !== "Paid" && (
+                            <button
+                              onClick={() => markPaid(order.id)}
+                              style={{
+                                background: "#22c55e22",
+                                border: "1px solid #22c55e",
+                                color: "#22c55e",
+                                padding: "6px 12px",
+                                borderRadius: "6px",
+                                cursor: "pointer",
+                                fontFamily: "inherit",
+                                fontSize: "12px",
+                              }}
+                            >
+                              Mark Paid
+                            </button>
+                          )}
+                          <button
+                            onClick={() => openInvoiceWindow(order)}
+                            style={{
+                              background: accent + "22",
+                              border: `1px solid ${accent}`,
+                              color: accent,
                               padding: "6px 12px",
                               borderRadius: "6px",
                               cursor: "pointer",
@@ -1237,30 +1616,32 @@ export default function AdminDashboard({ user, onLogout }) {
                               fontSize: "12px",
                             }}
                           >
-                            Mark Paid
+                            🧾 Invoice
                           </button>
-                        )}
-                        <button
-                          onClick={() => openInvoiceWindow(order)}
-                          style={{
-                            background: accent + "22",
-                            border: `1px solid ${accent}`,
-                            color: accent,
-                            padding: "6px 12px",
-                            borderRadius: "6px",
-                            cursor: "pointer",
-                            fontFamily: "inherit",
-                            fontSize: "12px",
-                          }}
-                        >
-                          🧾 Invoice
-                        </button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
                 </div>
               )}
             </div>
+          )}
+
+          {/* ONLINE ORDERS TAB */}
+          {tab === "online_orders" && (
+            <OnlineOrdersTab
+              orders={orders}
+              onUpdateStatus={updateOrderStatus}
+              onMarkPaid={markPaid}
+              onOpenInvoice={openInvoiceWindow}
+              fmt={fmt}
+              bg={bg}
+              surface={surface}
+              border={border}
+              text={text}
+              muted={muted}
+              accent={accent}
+              darkMode={darkMode}
+            />
           )}
 
           {/* KITCHEN TAB */}
@@ -1294,105 +1675,137 @@ export default function AdminDashboard({ user, onLogout }) {
                   </div>
                 )}
                 {!isOrdersLoading &&
-                  kitchenOrders.map((order) => (
-                    <div
-                      key={order.id}
-                      style={{
-                        background: surface,
-                        border: `2px solid ${STATUS_COLORS[order.status]}`,
-                        borderRadius: "12px",
-                        padding: "16px",
-                      }}
-                    >
+                  kitchenOrders.map((order) => {
+                    const isOnline = order.type === "delivery";
+                    const borderColor = isOnline
+                      ? "#3b82f6"
+                      : STATUS_COLORS[order.status];
+                    return (
                       <div
+                        key={order.id}
                         style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          marginBottom: "8px",
+                          background: surface,
+                          border: `2px solid ${borderColor}`,
+                          borderRadius: "12px",
+                          padding: "16px",
+                          position: "relative",
                         }}
                       >
+                        {isOnline && (
+                          <div
+                            style={{
+                              position: "absolute",
+                              top: "8px",
+                              right: "8px",
+                              background: "#3b82f6",
+                              color: "#fff",
+                              padding: "2px 8px",
+                              borderRadius: "10px",
+                              fontSize: "9px",
+                              fontWeight: "700",
+                              letterSpacing: "0.5px",
+                            }}
+                          >
+                            ONLINE
+                          </div>
+                        )}
                         <div
                           style={{
-                            fontWeight: "700",
-                            fontSize: "18px",
-                            color: "#ff9500",
-                          }}
-                        >
-                          Table #{order.table}
-                        </div>
-                        <div
-                          style={{
-                            background: STATUS_COLORS[order.status] + "33",
-                            color: STATUS_COLORS[order.status],
-                            padding: "3px 8px",
-                            borderRadius: "6px",
-                            fontSize: "11px",
-                            fontWeight: "700",
-                          }}
-                        >
-                          {order.status}
-                        </div>
-                      </div>
-                      <div
-                        style={{
-                          color: muted,
-                          fontSize: "11px",
-                          marginBottom: "8px",
-                        }}
-                      >
-                        {timeAgo(order.timestamp)}
-                      </div>
-                      {order.items.map((i) => (
-                        <div
-                          key={i.id}
-                          style={{
-                            fontSize: "13px",
-                            marginBottom: "4px",
                             display: "flex",
-                            gap: "8px",
+                            justifyContent: "space-between",
+                            marginBottom: "8px",
                           }}
                         >
-                          <span style={{ color: "#ff9500", fontWeight: "700" }}>
-                            ×{i.qty}
-                          </span>
-                          <span>{i.name}</span>
+                          <div
+                            style={{
+                              fontWeight: "700",
+                              fontSize: "18px",
+                              color: isOnline ? "#3b82f6" : "#ff9500",
+                            }}
+                          >
+                            {isOnline
+                              ? `🛵 ${order.customer?.name || "Online Delivery"}`
+                              : `🍽️ Table #${order.table}`}
+                          </div>
+                          <div
+                            style={{
+                              background: STATUS_COLORS[order.status] + "33",
+                              color: STATUS_COLORS[order.status],
+                              padding: "3px 8px",
+                              borderRadius: "6px",
+                              fontSize: "11px",
+                              fontWeight: "700",
+                            }}
+                          >
+                            {order.status}
+                          </div>
                         </div>
-                      ))}
-                      <select
-                        value={order.status}
-                        onChange={(e) =>
-                          updateOrderStatus(order.id, e.target.value)
-                        }
-                        style={{
-                          width: "100%",
-                          marginTop: "10px",
-                          background: bg,
-                          border: `1px solid ${border}`,
-                          color: text,
-                          padding: "8px",
-                          borderRadius: "6px",
-                          outline: "none",
-                          fontFamily: "inherit",
-                          fontSize: "12px",
-                        }}
-                      >
-                        {ORDER_STATUSES.map((s) => (
-                          <option key={s}>{s}</option>
+                        <div
+                          style={{
+                            color: muted,
+                            fontSize: "11px",
+                            marginBottom: "8px",
+                          }}
+                        >
+                          {timeAgo(order.timestamp)}
+                        </div>
+                        {order.items.map((i) => (
+                          <div
+                            key={i.id}
+                            style={{
+                              fontSize: "13px",
+                              marginBottom: "4px",
+                              display: "flex",
+                              gap: "8px",
+                            }}
+                          >
+                            <span
+                              style={{ color: "#ff9500", fontWeight: "700" }}
+                            >
+                              ×{i.qty}
+                            </span>
+                            <span>{i.name}</span>
+                          </div>
                         ))}
-                      </select>
-                    </div>
-                  ))}
+                        <select
+                          value={order.status}
+                          onChange={(e) =>
+                            updateOrderStatus(order.id, e.target.value)
+                          }
+                          style={{
+                            width: "100%",
+                            marginTop: "10px",
+                            background: bg,
+                            border: `1px solid ${border}`,
+                            color: text,
+                            padding: "8px",
+                            borderRadius: "6px",
+                            outline: "none",
+                            fontFamily: "inherit",
+                            fontSize: "12px",
+                          }}
+                        >
+                          {(isOnline
+                            ? ONLINE_ORDER_STATUSES
+                            : ORDER_STATUSES
+                          ).map((s) => (
+                            <option key={s}>{s}</option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  })}
                 {!isOrdersLoading && kitchenOrders.length === 0 && (
-                    <div
-                      style={{
-                        color: muted,
-                        padding: "40px",
-                        textAlign: "center",
-                      }}
-                    >
-                      No active kitchen orders
-                    </div>
-                  )}
+                  <div
+                    style={{
+                      color: muted,
+                      padding: "40px",
+                      textAlign: "center",
+                    }}
+                  >
+                    No active kitchen orders
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1484,485 +1897,512 @@ export default function AdminDashboard({ user, onLogout }) {
                 </div>
               ) : (
                 <>
-              {showAddItem && (
-                <ItemForm
-                  item={null}
-                  categories={categories}
-                  availableTags={itemTags}
-                  onSave={(item) => {
-                    let updated = [...menuItems, { ...item, id: Date.now() }];
-                    setMenuItems(updated);
-                    saveMenu(updated);
-                    setShowAddItem(false);
-                  }}
-                  onCancel={() => {
-                    setShowAddItem(false);
-                  }}
-                  bg={bg}
-                  surface={surface}
-                  border={border}
-                  text={text}
-                  accent={accent}
-                  muted={muted}
-                />
-              )}
-              {/* Add Category Form at Top */}
-              {showAddCategory && (
-                <div
-                  style={{
-                    background: surface,
-                    border: `1px solid ${border}`,
-                    borderRadius: "12px",
-                    padding: "16px",
-                    marginBottom: "16px",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: "14px",
-                      fontWeight: "600",
-                      marginBottom: "12px",
-                      color: accent,
-                    }}
-                  >
-                    Add New Category
-                  </div>
-                  <div style={{ display: "flex", gap: "8px" }}>
-                    <input
-                      placeholder="Category name"
-                      value={newCategoryName}
-                      onChange={(e) => setNewCategoryName(e.target.value)}
-                      onKeyDown={(e) =>
-                        e.key === "Enter" && handleAddCategory()
-                      }
-                      autoFocus
-                      style={{
-                        flex: 1,
-                        background: bg,
-                        border: `1px solid ${border}`,
-                        color: text,
-                        padding: "10px 12px",
-                        borderRadius: "6px",
-                        outline: "none",
-                        fontFamily: "inherit",
-                        fontSize: "13px",
+                  {showAddItem && (
+                    <ItemForm
+                      item={null}
+                      categories={categories}
+                      availableTags={itemTags}
+                      onSave={(item) => {
+                        let updated = [
+                          ...menuItems,
+                          { ...item, id: Date.now() },
+                        ];
+                        setMenuItems(updated);
+                        saveMenu(updated);
+                        setShowAddItem(false);
                       }}
+                      onCancel={() => {
+                        setShowAddItem(false);
+                      }}
+                      bg={bg}
+                      surface={surface}
+                      border={border}
+                      text={text}
+                      accent={accent}
+                      muted={muted}
                     />
-                    <button
-                      onClick={handleAddCategory}
-                      disabled={!newCategoryName.trim()}
-                      style={{
-                        background: accent,
-                        border: "none",
-                        color: "#fff",
-                        padding: "10px 16px",
-                        borderRadius: "6px",
-                        cursor: newCategoryName.trim()
-                          ? "pointer"
-                          : "not-allowed",
-                        fontSize: "13px",
-                        fontFamily: "inherit",
-                        opacity: newCategoryName.trim() ? 1 : 0.5,
-                      }}
-                    >
-                      Add
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowAddCategory(false);
-                        setNewCategoryName("");
-                      }}
-                      style={{
-                        background: "transparent",
-                        border: `1px solid ${border}`,
-                        color: muted,
-                        padding: "10px 16px",
-                        borderRadius: "6px",
-                        cursor: "pointer",
-                        fontSize: "13px",
-                        fontFamily: "inherit",
-                      }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                  <div style={{ marginTop: "12px" }}>
+                  )}
+                  {/* Add Category Form at Top */}
+                  {showAddCategory && (
                     <div
                       style={{
-                        fontSize: "12px",
-                        color: muted,
-                        marginBottom: "8px",
+                        background: surface,
+                        border: `1px solid ${border}`,
+                        borderRadius: "12px",
+                        padding: "16px",
+                        marginBottom: "16px",
                       }}
                     >
-                      Existing Categories
-                    </div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                      {categories
-                        .filter((c) => c !== "All")
-                        .map((cat) => (
-                        <span
-                          key={cat}
+                      <div
+                        style={{
+                          fontSize: "14px",
+                          fontWeight: "600",
+                          marginBottom: "12px",
+                          color: accent,
+                        }}
+                      >
+                        Add New Category
+                      </div>
+                      <div style={{ display: "flex", gap: "8px" }}>
+                        <input
+                          placeholder="Category name"
+                          value={newCategoryName}
+                          onChange={(e) => setNewCategoryName(e.target.value)}
+                          onKeyDown={(e) =>
+                            e.key === "Enter" && handleAddCategory()
+                          }
+                          autoFocus
                           style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "6px",
+                            flex: 1,
                             background: bg,
                             border: `1px solid ${border}`,
-                            borderRadius: "20px",
-                            padding: "4px 10px",
-                            fontSize: "12px",
+                            color: text,
+                            padding: "10px 12px",
+                            borderRadius: "6px",
+                            outline: "none",
+                            fontFamily: "inherit",
+                            fontSize: "13px",
                           }}
-                        >
-                          {cat}
-                          <button
-                            onClick={() => handleDeleteCategory(cat)}
-                            style={{
-                              background: "transparent",
-                              border: "none",
-                              color: "#ff4444",
-                              cursor: "pointer",
-                              fontSize: "12px",
-                              fontWeight: "700",
-                              lineHeight: 1,
-                              padding: 0,
-                            }}
-                            title={`Delete ${cat}`}
-                          >
-                            x
-                          </button>
-                        </span>
-                      ))}
-                      {categories.filter((c) => c !== "All").length === 0 && (
-                        <div style={{ fontSize: "12px", color: muted }}>
-                          No custom categories yet.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-              {showAddTag && (
-                <div
-                  style={{
-                    background: surface,
-                    border: `1px solid ${border}`,
-                    borderRadius: "12px",
-                    padding: "16px",
-                    marginBottom: "16px",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: "14px",
-                      fontWeight: "600",
-                      marginBottom: "12px",
-                      color: accent,
-                    }}
-                  >
-                    Add New Tag
-                  </div>
-                  <div style={{ display: "flex", gap: "8px" }}>
-                    <input
-                      placeholder="Tag name"
-                      value={newTagName}
-                      onChange={(e) => setNewTagName(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleAddTag()}
-                      autoFocus
-                      style={{
-                        flex: 1,
-                        background: bg,
-                        border: `1px solid ${border}`,
-                        color: text,
-                        padding: "10px 12px",
-                        borderRadius: "6px",
-                        outline: "none",
-                        fontFamily: "inherit",
-                        fontSize: "13px",
-                      }}
-                    />
-                    <button
-                      onClick={handleAddTag}
-                      disabled={!newTagName.trim()}
-                      style={{
-                        background: accent,
-                        border: "none",
-                        color: "#fff",
-                        padding: "10px 16px",
-                        borderRadius: "6px",
-                        cursor: newTagName.trim() ? "pointer" : "not-allowed",
-                        fontSize: "13px",
-                        fontFamily: "inherit",
-                        opacity: newTagName.trim() ? 1 : 0.5,
-                      }}
-                    >
-                      Add
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowAddTag(false);
-                        setNewTagName("");
-                      }}
-                      style={{
-                        background: "transparent",
-                        border: `1px solid ${border}`,
-                        color: muted,
-                        padding: "10px 16px",
-                        borderRadius: "6px",
-                        cursor: "pointer",
-                        fontSize: "13px",
-                        fontFamily: "inherit",
-                      }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                  <div style={{ marginTop: "12px" }}>
-                    <div
-                      style={{
-                        fontSize: "12px",
-                        color: muted,
-                        marginBottom: "8px",
-                      }}
-                    >
-                      Existing Tags
-                    </div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                      {itemTags.map((tag) => (
-                        <span
-                          key={tag}
+                        />
+                        <button
+                          onClick={handleAddCategory}
+                          disabled={!newCategoryName.trim()}
                           style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "6px",
-                            background: bg,
-                            border: `1px solid ${border}`,
-                            borderRadius: "20px",
-                            padding: "4px 10px",
-                            fontSize: "12px",
+                            background: accent,
+                            border: "none",
+                            color: "#fff",
+                            padding: "10px 16px",
+                            borderRadius: "6px",
+                            cursor: newCategoryName.trim()
+                              ? "pointer"
+                              : "not-allowed",
+                            fontSize: "13px",
+                            fontFamily: "inherit",
+                            opacity: newCategoryName.trim() ? 1 : 0.5,
                           }}
                         >
-                          {tag}
-                          <button
-                            onClick={() => handleDeleteTag(tag)}
-                            style={{
-                              background: "transparent",
-                              border: "none",
-                              color: "#ff4444",
-                              cursor: "pointer",
-                              fontSize: "12px",
-                              fontWeight: "700",
-                              lineHeight: 1,
-                              padding: 0,
-                            }}
-                            title={`Delete ${tag}`}
-                          >
-                            ×
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-              <div style={{ display: "grid", gap: "8px" }}>
-                {categories
-                  .filter((c) => c !== "All")
-                  .map((cat) => {
-                    const items = menuItems.filter((m) => m.category === cat);
-                    if (!items.length) return null;
-                    return (
-                      <div key={cat}>
+                          Add
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowAddCategory(false);
+                            setNewCategoryName("");
+                          }}
+                          style={{
+                            background: "transparent",
+                            border: `1px solid ${border}`,
+                            color: muted,
+                            padding: "10px 16px",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                            fontSize: "13px",
+                            fontFamily: "inherit",
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                      <div style={{ marginTop: "12px" }}>
                         <div
                           style={{
-                            fontSize: "14px",
-                            fontWeight: "600",
-                            color: accent,
-                            margin: "16px 0 8px",
-                            borderLeft: `3px solid ${accent}`,
-                            paddingLeft: "10px",
+                            fontSize: "12px",
+                            color: muted,
+                            marginBottom: "8px",
                           }}
                         >
-                          {cat}
+                          Existing Categories
                         </div>
-                        {items.map((item) => (
-                          <div
-                            key={item.id}
-                            style={{
-                              background: surface,
-                              border: `1px solid ${border}`,
-                              borderRadius: "10px",
-                              padding: "12px 16px",
-                              marginBottom: "6px",
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "center",
-                              flexWrap: "wrap",
-                              gap: "8px",
-                              opacity: item.available ? 1 : 0.5,
-                            }}
-                          >
-                            <div>
-                              <div
-                                style={{ fontWeight: "600", fontSize: "14px" }}
-                              >
-                                <span
-                                  style={{
-                                    display: "inline-block",
-                                    width: "24px",
-                                    height: "24px",
-                                    verticalAlign: "middle",
-                                    marginRight: "6px",
-                                    overflow: "hidden",
-                                    borderRadius: "4px",
-                                  }}
-                                >
-                                  {item?.image &&
-                                    String(item.image).startsWith("data:") ? (
-                                    <img
-                                      src={item.image}
-                                      alt={item.name}
-                                      style={{
-                                        width: "100%",
-                                        height: "100%",
-                                        objectFit: "cover",
-                                      }}
-                                    />
-                                  ) : (
-                                    item.image
-                                  )}
-                                </span>
-                                {item.name}
-                              </div>
-                              <div
+                        <div
+                          style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: "8px",
+                          }}
+                        >
+                          {categories
+                            .filter((c) => c !== "All")
+                            .map((cat) => (
+                              <span
+                                key={cat}
                                 style={{
-                                  color: muted,
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "6px",
+                                  background: bg,
+                                  border: `1px solid ${border}`,
+                                  borderRadius: "20px",
+                                  padding: "4px 10px",
                                   fontSize: "12px",
-                                  marginTop: "2px",
                                 }}
                               >
-                                {fmt(item?.price || 0)} •{" "}
-                                {item?.tags?.join(", ") || "No tags"}
-                              </div>
-                            </div>
-                            <div style={{ display: "flex", gap: "6px" }}>
-                              <button
-                                onClick={() => {
-                                  const updated = menuItems.map((m) =>
-                                    m.id === item.id
-                                      ? { ...m, available: !m.available }
-                                      : m,
-                                  );
-                                  setMenuItems(updated);
-                                  saveMenu(updated);
-                                }}
-                                style={{
-                                  background: item.available
-                                    ? "#22c55e22"
-                                    : "#ff444422",
-                                  border: `1px solid ${item.available ? "#22c55e" : "#ff4444"}`,
-                                  color: item.available ? "#22c55e" : "#ff4444",
-                                  padding: "5px 10px",
-                                  borderRadius: "6px",
-                                  cursor: "pointer",
-                                  fontSize: "11px",
-                                  fontFamily: "inherit",
-                                }}
-                              >
-                                {item.available ? "Active" : "Hidden"}
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setEditItem(item);
-                                  // Scroll to the item after a small delay to allow state update
-                                  setTimeout(() => {
-                                    const element = document.getElementById(
-                                      `item-${item.id}`,
-                                    );
-                                    if (element) {
-                                      element.scrollIntoView({
-                                        behavior: "smooth",
-                                        block: "start",
-                                      });
-                                    }
-                                  }, 100);
-                                }}
-                                style={{
-                                  background: accent + "22",
-                                  border: `1px solid ${accent}`,
-                                  color: accent,
-                                  padding: "5px 10px",
-                                  borderRadius: "6px",
-                                  cursor: "pointer",
-                                  fontSize: "11px",
-                                  fontFamily: "inherit",
-                                }}
-                              >
-                                Edit
-                              </button>
-                              <button
-                                onClick={() => {
-                                  showConfirmModal({
-                                    title: "Delete Item",
-                                    message: `Delete "${item.name}"?`,
-                                    confirmLabel: "Delete",
-                                    confirmTone: "danger",
-                                    onConfirm: () => {
-                                      const updatedMenu = menuItems.filter(
-                                        (m) => m.id !== item.id,
-                                      );
-                                      setMenuItems(updatedMenu);
-                                      saveMenu(updatedMenu);
-                                    },
-                                  });
-                                }}
-                                style={{
-                                  background: "#ff444422",
-                                  border: "1px solid #ff4444",
-                                  color: "#ff4444",
-                                  padding: "5px 10px",
-                                  borderRadius: "6px",
-                                  cursor: "pointer",
-                                  fontSize: "11px",
-                                  fontFamily: "inherit",
-                                }}
-                              >
-                                Del
-                              </button>
-                            </div>
-                            {/* Inline Edit Form */}
-                            {editItem && editItem.id === item.id && (
-                              <div
-                                id={`item-${item.id}`}
-                                style={{ width: "100%", marginTop: "12px" }}
-                              >
-                                <ItemForm
-                                  item={editItem}
-                                  categories={categories}
-                                  availableTags={itemTags}
-                                  onSave={(updatedItem) => {
-                                    const updated = menuItems.map((m) =>
-                                      m.id === updatedItem.id ? updatedItem : m,
-                                    );
-                                    setMenuItems(updated);
-                                    saveMenu(updated);
-                                    setEditItem(null);
+                                {cat}
+                                <button
+                                  onClick={() => handleDeleteCategory(cat)}
+                                  style={{
+                                    background: "transparent",
+                                    border: "none",
+                                    color: "#ff4444",
+                                    cursor: "pointer",
+                                    fontSize: "12px",
+                                    fontWeight: "700",
+                                    lineHeight: 1,
+                                    padding: 0,
                                   }}
-                                  onCancel={() => setEditItem(null)}
-                                  bg={bg}
-                                  surface={surface}
-                                  border={border}
-                                  text={text}
-                                  accent={accent}
-                                  muted={muted}
-                                />
-                              </div>
-                            )}
-                          </div>
-                        ))}
+                                  title={`Delete ${cat}`}
+                                >
+                                  x
+                                </button>
+                              </span>
+                            ))}
+                          {categories.filter((c) => c !== "All").length ===
+                            0 && (
+                            <div style={{ fontSize: "12px", color: muted }}>
+                              No custom categories yet.
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    );
-                  })}
-              </div>
+                    </div>
+                  )}
+                  {showAddTag && (
+                    <div
+                      style={{
+                        background: surface,
+                        border: `1px solid ${border}`,
+                        borderRadius: "12px",
+                        padding: "16px",
+                        marginBottom: "16px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: "14px",
+                          fontWeight: "600",
+                          marginBottom: "12px",
+                          color: accent,
+                        }}
+                      >
+                        Add New Tag
+                      </div>
+                      <div style={{ display: "flex", gap: "8px" }}>
+                        <input
+                          placeholder="Tag name"
+                          value={newTagName}
+                          onChange={(e) => setNewTagName(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && handleAddTag()}
+                          autoFocus
+                          style={{
+                            flex: 1,
+                            background: bg,
+                            border: `1px solid ${border}`,
+                            color: text,
+                            padding: "10px 12px",
+                            borderRadius: "6px",
+                            outline: "none",
+                            fontFamily: "inherit",
+                            fontSize: "13px",
+                          }}
+                        />
+                        <button
+                          onClick={handleAddTag}
+                          disabled={!newTagName.trim()}
+                          style={{
+                            background: accent,
+                            border: "none",
+                            color: "#fff",
+                            padding: "10px 16px",
+                            borderRadius: "6px",
+                            cursor: newTagName.trim()
+                              ? "pointer"
+                              : "not-allowed",
+                            fontSize: "13px",
+                            fontFamily: "inherit",
+                            opacity: newTagName.trim() ? 1 : 0.5,
+                          }}
+                        >
+                          Add
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowAddTag(false);
+                            setNewTagName("");
+                          }}
+                          style={{
+                            background: "transparent",
+                            border: `1px solid ${border}`,
+                            color: muted,
+                            padding: "10px 16px",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                            fontSize: "13px",
+                            fontFamily: "inherit",
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                      <div style={{ marginTop: "12px" }}>
+                        <div
+                          style={{
+                            fontSize: "12px",
+                            color: muted,
+                            marginBottom: "8px",
+                          }}
+                        >
+                          Existing Tags
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: "8px",
+                          }}
+                        >
+                          {itemTags.map((tag) => (
+                            <span
+                              key={tag}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                background: bg,
+                                border: `1px solid ${border}`,
+                                borderRadius: "20px",
+                                padding: "4px 10px",
+                                fontSize: "12px",
+                              }}
+                            >
+                              {tag}
+                              <button
+                                onClick={() => handleDeleteTag(tag)}
+                                style={{
+                                  background: "transparent",
+                                  border: "none",
+                                  color: "#ff4444",
+                                  cursor: "pointer",
+                                  fontSize: "12px",
+                                  fontWeight: "700",
+                                  lineHeight: 1,
+                                  padding: 0,
+                                }}
+                                title={`Delete ${tag}`}
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div style={{ display: "grid", gap: "8px" }}>
+                    {categories
+                      .filter((c) => c !== "All")
+                      .map((cat) => {
+                        const items = menuItems.filter(
+                          (m) => m.category === cat,
+                        );
+                        if (!items.length) return null;
+                        return (
+                          <div key={cat}>
+                            <div
+                              style={{
+                                fontSize: "14px",
+                                fontWeight: "600",
+                                color: accent,
+                                margin: "16px 0 8px",
+                                borderLeft: `3px solid ${accent}`,
+                                paddingLeft: "10px",
+                              }}
+                            >
+                              {cat}
+                            </div>
+                            {items.map((item) => (
+                              <div
+                                key={item.id}
+                                style={{
+                                  background: surface,
+                                  border: `1px solid ${border}`,
+                                  borderRadius: "10px",
+                                  padding: "12px 16px",
+                                  marginBottom: "6px",
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "center",
+                                  flexWrap: "wrap",
+                                  gap: "8px",
+                                  opacity: item.available ? 1 : 0.5,
+                                }}
+                              >
+                                <div>
+                                  <div
+                                    style={{
+                                      fontWeight: "600",
+                                      fontSize: "14px",
+                                    }}
+                                  >
+                                    <span
+                                      style={{
+                                        display: "inline-block",
+                                        width: "24px",
+                                        height: "24px",
+                                        verticalAlign: "middle",
+                                        marginRight: "6px",
+                                        overflow: "hidden",
+                                        borderRadius: "4px",
+                                      }}
+                                    >
+                                      {item?.image &&
+                                      String(item.image).startsWith("data:") ? (
+                                        <img
+                                          src={item.image}
+                                          alt={item.name}
+                                          style={{
+                                            width: "100%",
+                                            height: "100%",
+                                            objectFit: "cover",
+                                          }}
+                                        />
+                                      ) : (
+                                        item.image
+                                      )}
+                                    </span>
+                                    {item.name}
+                                  </div>
+                                  <div
+                                    style={{
+                                      color: muted,
+                                      fontSize: "12px",
+                                      marginTop: "2px",
+                                    }}
+                                  >
+                                    {fmt(item?.price || 0)} •{" "}
+                                    {item?.tags?.join(", ") || "No tags"}
+                                  </div>
+                                </div>
+                                <div style={{ display: "flex", gap: "6px" }}>
+                                  <button
+                                    onClick={() => {
+                                      const updated = menuItems.map((m) =>
+                                        m.id === item.id
+                                          ? { ...m, available: !m.available }
+                                          : m,
+                                      );
+                                      setMenuItems(updated);
+                                      saveMenu(updated);
+                                    }}
+                                    style={{
+                                      background: item.available
+                                        ? "#22c55e22"
+                                        : "#ff444422",
+                                      border: `1px solid ${item.available ? "#22c55e" : "#ff4444"}`,
+                                      color: item.available
+                                        ? "#22c55e"
+                                        : "#ff4444",
+                                      padding: "5px 10px",
+                                      borderRadius: "6px",
+                                      cursor: "pointer",
+                                      fontSize: "11px",
+                                      fontFamily: "inherit",
+                                    }}
+                                  >
+                                    {item.available ? "Active" : "Hidden"}
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setEditItem(item);
+                                      // Scroll to the item after a small delay to allow state update
+                                      setTimeout(() => {
+                                        const element = document.getElementById(
+                                          `item-${item.id}`,
+                                        );
+                                        if (element) {
+                                          element.scrollIntoView({
+                                            behavior: "smooth",
+                                            block: "start",
+                                          });
+                                        }
+                                      }, 100);
+                                    }}
+                                    style={{
+                                      background: accent + "22",
+                                      border: `1px solid ${accent}`,
+                                      color: accent,
+                                      padding: "5px 10px",
+                                      borderRadius: "6px",
+                                      cursor: "pointer",
+                                      fontSize: "11px",
+                                      fontFamily: "inherit",
+                                    }}
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      showConfirmModal({
+                                        title: "Delete Item",
+                                        message: `Delete "${item.name}"?`,
+                                        confirmLabel: "Delete",
+                                        confirmTone: "danger",
+                                        onConfirm: () => {
+                                          const updatedMenu = menuItems.filter(
+                                            (m) => m.id !== item.id,
+                                          );
+                                          setMenuItems(updatedMenu);
+                                          saveMenu(updatedMenu);
+                                        },
+                                      });
+                                    }}
+                                    style={{
+                                      background: "#ff444422",
+                                      border: "1px solid #ff4444",
+                                      color: "#ff4444",
+                                      padding: "5px 10px",
+                                      borderRadius: "6px",
+                                      cursor: "pointer",
+                                      fontSize: "11px",
+                                      fontFamily: "inherit",
+                                    }}
+                                  >
+                                    Del
+                                  </button>
+                                </div>
+                                {/* Inline Edit Form */}
+                                {editItem && editItem.id === item.id && (
+                                  <div
+                                    id={`item-${item.id}`}
+                                    style={{ width: "100%", marginTop: "12px" }}
+                                  >
+                                    <ItemForm
+                                      item={editItem}
+                                      categories={categories}
+                                      availableTags={itemTags}
+                                      onSave={(updatedItem) => {
+                                        const updated = menuItems.map((m) =>
+                                          m.id === updatedItem.id
+                                            ? updatedItem
+                                            : m,
+                                        );
+                                        setMenuItems(updated);
+                                        saveMenu(updated);
+                                        setEditItem(null);
+                                      }}
+                                      onCancel={() => setEditItem(null)}
+                                      bg={bg}
+                                      surface={surface}
+                                      border={border}
+                                      text={text}
+                                      accent={accent}
+                                      muted={muted}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })}
+                  </div>
                 </>
               )}
             </div>
@@ -1980,7 +2420,12 @@ export default function AdminDashboard({ user, onLogout }) {
                 }}
               >
                 <div style={{ fontSize: "18px", fontWeight: "700" }}>
-                  Table Management ({tables.length} tables)
+                  Table Management (
+                  {
+                    tables.filter((t) => t.number !== 0 && t.id !== "delivery")
+                      .length
+                  }{" "}
+                  tables)
                 </div>
                 <button
                   onClick={() => {
@@ -2197,7 +2642,9 @@ export default function AdminDashboard({ user, onLogout }) {
                 }}
               >
                 {tables
-                  .filter((t) => t.active)
+                  .filter(
+                    (t) => t.active && t.number !== 0 && t.id !== "delivery",
+                  )
                   .map((table) => {
                     const tableOrders = realOrders.filter(
                       (o) =>
@@ -2242,7 +2689,7 @@ export default function AdminDashboard({ user, onLogout }) {
                           </div>
                         )}
                         <div style={{ fontSize: "28px", marginBottom: "8px" }}>
-                          {occupied ? "🟢" : "⚪"}
+                          {occupied ? "🟢" : "💺"}
                         </div>
                         <div style={{ fontWeight: "700", fontSize: "16px" }}>
                           {table.name}
@@ -2336,7 +2783,9 @@ export default function AdminDashboard({ user, onLogout }) {
                     );
                   })}
               </div>
-              {tables.filter((t) => t.active).length === 0 && (
+              {tables.filter(
+                (t) => t.active && t.number !== 0 && t.id !== "delivery",
+              ).length === 0 && (
                 <div
                   style={{ textAlign: "center", padding: "40px", color: muted }}
                 >
@@ -2358,12 +2807,31 @@ export default function AdminDashboard({ user, onLogout }) {
               isSaving={savingBillingSettings}
               saveState={billingSaveState}
               showSaveButton={showBillingSaveButton}
+              onlineCharges={onlineChargesDraft}
+              onOnlineChargesChange={(draft) => {
+                setOnlineChargesDraft(draft);
+                setOnlineChargesSaveState("idle");
+              }}
+              onSaveOnlineCharges={handleSaveOnlineCharges}
+              isSavingOnlineCharges={savingOnlineCharges}
+              onlineChargesSaveState={onlineChargesSaveState}
+              showOnlineChargesSaveButton={showOnlineChargesSaveButton}
+              onlineBillers={onlineBillersDraft}
+              onAddOnlineBiller={handleAddOnlineBiller}
+              onOnlineBillerFieldChange={handleOnlineBillerFieldChange}
+              onDeleteOnlineBiller={handleDeleteOnlineBiller}
+              onToggleOnlineBiller={handleToggleOnlineBiller}
+              onSaveOnlineBillers={handleSaveOnlineBillers}
+              isSavingOnlineBillers={savingOnlineBillers}
+              onlineBillersSaveState={onlineBillersSaveState}
+              showOnlineBillersSaveButton={showOnlineBillersSaveButton}
               bg={bg}
               surface={surface}
               border={border}
               text={text}
               muted={muted}
               accent={accent}
+              darkMode={darkMode}
             />
           )}
 
@@ -2371,6 +2839,7 @@ export default function AdminDashboard({ user, onLogout }) {
           {tab === "analytics" && (
             <AnalyticsTab
               realOrders={realOrders}
+              onlineOrders={onlineOrders}
               todayOrders={todayOrders}
               todayRevenue={todayRevenue}
               todayPendingRevenue={todayPendingRevenue}
@@ -2450,7 +2919,9 @@ export default function AdminDashboard({ user, onLogout }) {
                 </button>
               )}
               <button
-                onClick={modalState.type === "confirm" ? runModalConfirm : closeModal}
+                onClick={
+                  modalState.type === "confirm" ? runModalConfirm : closeModal
+                }
                 style={{
                   background:
                     modalState.confirmTone === "warning"

@@ -31,8 +31,8 @@ export default function CustomerApp({
 }) {
   const scannedTable =
     initialTable === null ||
-      typeof initialTable === "undefined" ||
-      initialTable === ""
+    typeof initialTable === "undefined" ||
+    initialTable === ""
       ? NaN
       : Number(initialTable);
   const table =
@@ -69,12 +69,12 @@ export default function CustomerApp({
 
   // Restore order from localStorage on mount
   useEffect(() => {
-    const savedOrder = localStorage.getItem('rqs_orderPlaced');
+    const savedOrder = localStorage.getItem("rqs_orderPlaced");
     if (savedOrder) {
       try {
         setOrderPlaced(JSON.parse(savedOrder));
       } catch (e) {
-        console.error('Failed to parse saved order:', e);
+        console.error("Failed to parse saved order:", e);
       }
     }
     setIsRestored(true);
@@ -84,9 +84,9 @@ export default function CustomerApp({
   useEffect(() => {
     if (!isRestored) return;
     if (orderPlaced) {
-      localStorage.setItem('rqs_orderPlaced', JSON.stringify(orderPlaced));
+      localStorage.setItem("rqs_orderPlaced", JSON.stringify(orderPlaced));
     } else {
-      localStorage.removeItem('rqs_orderPlaced');
+      localStorage.removeItem("rqs_orderPlaced");
     }
   }, [orderPlaced, isRestored]);
 
@@ -99,7 +99,7 @@ export default function CustomerApp({
     }
     // Push current view state to browser history
     const stateObj = { view, cartOpen, payMode };
-    history.pushState(stateObj, '', '');
+    history.pushState(stateObj, "", "");
   }, [view]);
 
   useEffect(() => {
@@ -123,15 +123,15 @@ export default function CustomerApp({
         setView(event.state.view);
       } else {
         // Fallback: go back in view hierarchy
-        if (view === 'order_status') {
-          setView('menu');
-        } else if (view === 'menu') {
-          setView('qr_required');
+        if (view === "order_status") {
+          setView("menu");
+        } else if (view === "menu") {
+          setView("qr_required");
         }
       }
     };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
   }, [view, cartOpen, payMode, payingOrder]);
 
   // Listen for real-time updates from Firebase
@@ -146,31 +146,40 @@ export default function CustomerApp({
 
     let unsubOrders = () => {};
     if (table && accessCode) {
-      unsubOrders = subscribeToTableOrders(accessCode, (orders) => {
-        setOrders(orders); // Store table orders
-        const tableOrdersList = orders.filter(
-          (o) => o.status !== "completed" && o.status !== "cancelled",
-        );
-        setTableOrders(tableOrdersList);
+      unsubOrders = subscribeToTableOrders(
+        accessCode,
+        (orders) => {
+          setOrders(orders); // Store table orders
+          const tableOrdersList = orders.filter(
+            (o) => o.status !== "completed" && o.status !== "cancelled",
+          );
+          setTableOrders(tableOrdersList);
 
-        // Update live order if we have one
-        if (orderPlacedRef.current) {
-          const found = orders.find((o) => o.id === orderPlacedRef.current.id);
-          if (found) {
-            setLiveOrder(found);
-            // Detect status change and notify
-            if (prevStatusRef.current && prevStatusRef.current !== found.status) {
-              saveNotification({
-                type: "order_update",
-                title: "Order Status Update",
-                message: `Your order is now: ${found.status}`,
-                table: found.table,
-              });
+          // Update live order if we have one
+          if (orderPlacedRef.current) {
+            const found = orders.find(
+              (o) => o.id === orderPlacedRef.current.id,
+            );
+            if (found) {
+              setLiveOrder(found);
+              // Detect status change and notify
+              if (
+                prevStatusRef.current &&
+                prevStatusRef.current !== found.status
+              ) {
+                saveNotification({
+                  type: "order_update",
+                  title: "Order Status Update",
+                  message: `Your order is now: ${found.status}`,
+                  table: found.table,
+                });
+              }
+              prevStatusRef.current = found.status;
             }
-            prevStatusRef.current = found.status;
           }
-        }
-      }, { limit: 40 });
+        },
+        { limit: 40 },
+      );
     } else {
       setOrders([]);
       setTableOrders([]);
@@ -276,7 +285,10 @@ export default function CustomerApp({
 
   const saveEditedOrder = async () => {
     if (!liveOrder || editingCart.length === 0) return;
-    const updatedSubtotal = editingCart.reduce((s, i) => s + i.price * i.qty, 0);
+    const updatedSubtotal = editingCart.reduce(
+      (s, i) => s + i.price * i.qty,
+      0,
+    );
     const updatedBreakdown = calculateBillBreakdown(
       updatedSubtotal,
       liveOrder.billingSettingsSnapshot || billingSettings,
@@ -377,7 +389,9 @@ export default function CustomerApp({
       new Set(
         menuItems
           .map((item) => item?.category)
-          .filter((value) => typeof value === "string" && value.trim().length > 0),
+          .filter(
+            (value) => typeof value === "string" && value.trim().length > 0,
+          ),
       ),
     );
     const source = categories.length > 0 ? categories : menuDerived;
@@ -537,15 +551,18 @@ export default function CustomerApp({
   if (payingOrder) {
     // Calculate unpaid orders for this table
     const unpaidTableOrders = tableOrders.filter(
-      (o) => o.table === payingOrder.table && o.paymentStatus === "Unpaid" && o.items &&
-        ["Confirmed", "Preparing", "Ready"].includes(o.status)
+      (o) =>
+        o.table === payingOrder.table &&
+        o.paymentStatus === "Unpaid" &&
+        o.items &&
+        ["Confirmed", "Preparing", "Ready"].includes(o.status),
     );
     const singleBreakdown = getOrderBreakdown(payingOrder, billingSettings);
     const allBreakdown = sumOrderBreakdowns(unpaidTableOrders, billingSettings);
     const payBreakdown = payAllOrders ? allBreakdown : singleBreakdown;
     const payTotal = payBreakdown.total;
     const itemsForReceipt = payAllOrders
-      ? unpaidTableOrders.flatMap(o => o.items)
+      ? unpaidTableOrders.flatMap((o) => o.items)
       : payingOrder.items;
     const toPaidPayload = (breakdown) => ({
       subtotal: breakdown.subtotal,
@@ -580,7 +597,9 @@ export default function CustomerApp({
             if (refreshedLiveOrder) {
               setLiveOrder({
                 ...payingOrder,
-                ...toPaidPayload(getOrderBreakdown(refreshedLiveOrder, billingSettings)),
+                ...toPaidPayload(
+                  getOrderBreakdown(refreshedLiveOrder, billingSettings),
+                ),
               });
             }
           } else {
@@ -590,10 +609,14 @@ export default function CustomerApp({
               ...toPaidPayload(singleBreakdown),
             });
           }
+          setCart([]); // Clear cart after payment
           setPayingOrder(null);
           setPayAllOrders(false);
         }}
-        onCancel={() => { setPayingOrder(null); setPayAllOrders(false); }}
+        onCancel={() => {
+          setPayingOrder(null);
+          setPayAllOrders(false);
+        }}
       />
     );
   }
@@ -697,8 +720,11 @@ export default function CustomerApp({
 
     // Compute unpaid table orders for the pay-all toggle
     const unpaidTableOrdersForToggle = tableOrders.filter(
-      (o) => o.table === table && o.paymentStatus === "Unpaid" && o.items &&
-        ["Confirmed", "Preparing", "Ready"].includes(o.status)
+      (o) =>
+        o.table === table &&
+        o.paymentStatus === "Unpaid" &&
+        o.items &&
+        ["Confirmed", "Preparing", "Ready"].includes(o.status),
     );
     const unpaidTableOrdersSummary = sumOrderBreakdowns(
       unpaidTableOrdersForToggle,
@@ -730,12 +756,12 @@ export default function CustomerApp({
           otherOrders={
             liveOrder
               ? tableOrders.filter(
-                (o) =>
-                  o.table === liveOrder.table &&
-                  o.id !== liveOrder.id &&
-                  o.items &&
-                  !["Completed", "Served"].includes(o.status),
-              )
+                  (o) =>
+                    o.table === liveOrder.table &&
+                    o.id !== liveOrder.id &&
+                    o.items &&
+                    !["Completed", "Served"].includes(o.status),
+                )
               : []
           }
           onSelectOrder={(orderId) => {
@@ -795,8 +821,7 @@ export default function CustomerApp({
       {/* Header */}
       <div
         style={{
-          background:
-            "linear-gradient(135deg, #c17f2a 0%, #e8b86d 100%)",
+          background: "linear-gradient(135deg, #c17f2a 0%, #e8b86d 100%)",
           padding: "20px 16px 16px",
           borderBottom: "2px solid #a07040",
           position: "sticky",
@@ -823,7 +848,11 @@ export default function CustomerApp({
               🍽️ Grand Table
             </div>
             <div
-              style={{ fontSize: "12px", color: "rgba(255,255,255,0.8)", marginTop: "2px" }}
+              style={{
+                fontSize: "12px",
+                color: "rgba(255,255,255,0.8)",
+                marginTop: "2px",
+              }}
             >
               Table #{table} • Fine Dining
             </div>
@@ -891,9 +920,9 @@ export default function CustomerApp({
                 style={{
                   background:
                     liveOrder &&
-                      ["Pending", "Confirmed", "Preparing", "Ready"].includes(
-                        liveOrder.status,
-                      )
+                    ["Pending", "Confirmed", "Preparing", "Ready"].includes(
+                      liveOrder.status,
+                    )
                       ? "#22c55e"
                       : "#2d1200",
                   border: "1px solid #22c55e",
@@ -1014,7 +1043,9 @@ export default function CustomerApp({
               justifyContent: "space-between",
             }}
           >
-            <span style={{ fontSize: "13px", color: "#c17f2a", fontWeight: "600" }}>
+            <span
+              style={{ fontSize: "13px", color: "#c17f2a", fontWeight: "600" }}
+            >
               Filter: {selectedTag}
             </span>
             <button
@@ -1089,7 +1120,9 @@ export default function CustomerApp({
         ) : (
           <>
             {categoryTabs
-              .filter((c) => c !== "All" && (category === "All" || category === c))
+              .filter(
+                (c) => c !== "All" && (category === "All" || category === c),
+              )
               .map((cat) => {
                 const items = filteredItems.filter((i) => i.category === cat);
                 if (items.length === 0) return null;
@@ -1119,7 +1152,9 @@ export default function CustomerApp({
                           onAddToCart={addToCart}
                           onUpdateQty={updateQty}
                           selectedTag={selectedTag}
-                          onTagClick={(tag) => setSelectedTag(tag === selectedTag ? null : tag)}
+                          onTagClick={(tag) =>
+                            setSelectedTag(tag === selectedTag ? null : tag)
+                          }
                         />
                       );
                     })}

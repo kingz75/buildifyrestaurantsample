@@ -19,6 +19,7 @@ const monthNames = [
 
 export default function AnalyticsTab({
   realOrders,
+  onlineOrders,
   todayOrders,
   todayRevenue,
   todayPendingRevenue,
@@ -33,14 +34,29 @@ export default function AnalyticsTab({
   const textClass = darkMode ? "text-[#e8e0f0]" : "text-[#1a1a2e]";
   const barTrackClass = darkMode ? "bg-[#1a1a22]" : "bg-[#eeeeee]";
 
-  const paidTodayOrders = todayOrders.filter(
+  // Combine dine-in and online orders for analytics
+  const allOrders = [...(realOrders || []), ...(onlineOrders || [])];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayOnlineOrders = (onlineOrders || []).filter(
+    (o) => o.timestamp >= today.getTime(),
+  );
+  const todayAllOrders = [...(todayOrders || []), ...todayOnlineOrders];
+  const paidTodayOrders = todayAllOrders.filter(
     (order) => order.paymentStatus === "Paid",
   );
-  const paidAllOrders = realOrders.filter((order) => order.paymentStatus === "Paid");
+  const paidAllOrders = allOrders.filter(
+    (order) => order.paymentStatus === "Paid",
+  );
 
   const topItems = (() => {
     const counts = {};
     realOrders.forEach((order) =>
+      order.items?.forEach((item) => {
+        counts[item.name] = (counts[item.name] || 0) + item.qty;
+      }),
+    );
+    onlineOrders.forEach((order) =>
       order.items?.forEach((item) => {
         counts[item.name] = (counts[item.name] || 0) + item.qty;
       }),
@@ -56,6 +72,10 @@ export default function AnalyticsTab({
       const hour = new Date(order.timestamp).getHours();
       counts[hour] = (counts[hour] || 0) + 1;
     });
+    onlineOrders.forEach((order) => {
+      const hour = new Date(order.timestamp).getHours();
+      counts[hour] = (counts[hour] || 0) + 1;
+    });
     return counts;
   })();
   const maxHourCount = Math.max(...Object.values(hourlyCounts), 1);
@@ -63,6 +83,10 @@ export default function AnalyticsTab({
   const weeklyCounts = (() => {
     const counts = {};
     realOrders.forEach((order) => {
+      const day = new Date(order.timestamp).getDay();
+      counts[day] = (counts[day] || 0) + 1;
+    });
+    onlineOrders.forEach((order) => {
       const day = new Date(order.timestamp).getDay();
       counts[day] = (counts[day] || 0) + 1;
     });
@@ -76,6 +100,10 @@ export default function AnalyticsTab({
       const month = new Date(order.timestamp).getMonth();
       counts[month] = (counts[month] || 0) + 1;
     });
+    onlineOrders.forEach((order) => {
+      const month = new Date(order.timestamp).getMonth();
+      counts[month] = (counts[month] || 0) + 1;
+    });
     return counts;
   })();
   const maxMonthCount = Math.max(...Object.values(monthlyCounts), 1);
@@ -86,7 +114,9 @@ export default function AnalyticsTab({
 
       <div className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className={`rounded-xl border p-5 ${cardClass}`}>
-          <div className={`mb-3 text-sm ${mutedClass}`}>Daily Revenue Summary</div>
+          <div className={`mb-3 text-sm ${mutedClass}`}>
+            Daily Revenue Summary
+          </div>
           {[
             ["Paid Revenue", todayRevenue],
             ["Paid Orders", paidTodayOrders.length],
@@ -105,9 +135,11 @@ export default function AnalyticsTab({
             </div>
           ))}
           <div className="mt-3 rounded-lg bg-[#7c5ccc]/15 p-3 text-center">
-            <div className={`text-[11px] ${mutedClass}`}>Total Daily Orders</div>
+            <div className={`text-[11px] ${mutedClass}`}>
+              Total Daily Orders
+            </div>
             <div className="text-[26px] font-bold text-[#7c5ccc]">
-              {todayOrders.length}
+              {todayAllOrders.length}
             </div>
           </div>
         </div>
@@ -134,7 +166,7 @@ export default function AnalyticsTab({
           <div className="mt-3 rounded-lg bg-[#7c5ccc]/15 p-3 text-center">
             <div className={`text-[11px] ${mutedClass}`}>All Orders</div>
             <div className="text-[26px] font-bold text-[#7c5ccc]">
-              {realOrders.length}
+              {allOrders.length}
             </div>
           </div>
         </div>
@@ -143,9 +175,15 @@ export default function AnalyticsTab({
       <div className={`mb-5 rounded-xl border p-5 ${cardClass}`}>
         <div className={`mb-3 text-sm ${mutedClass}`}>Orders by Status</div>
         {ORDER_STATUSES.map((status) => {
-          const count = realOrders.filter((order) => order.status === status).length;
-          const percent = realOrders.length
-            ? Math.round((count / realOrders.length) * 100)
+          const dineInCount = realOrders.filter(
+            (order) => order.status === status,
+          ).length;
+          const onlineCount = onlineOrders.filter(
+            (order) => order.status === status,
+          ).length;
+          const count = dineInCount + onlineCount;
+          const percent = allOrders.length
+            ? Math.round((count / allOrders.length) * 100)
             : 0;
           return (
             <div key={status} className="mb-2">
@@ -175,10 +213,12 @@ export default function AnalyticsTab({
             className={`flex items-center justify-between border-b py-2 text-[13px] ${darkMode ? "border-[#2a2a3a]" : "border-[#e0e0e5]"}`}
           >
             <span className={textClass}>{name}</span>
-            <span className="font-semibold text-[#7c5ccc]">{quantity}x ordered</span>
+            <span className="font-semibold text-[#7c5ccc]">
+              {quantity}x ordered
+            </span>
           </div>
         ))}
-        {realOrders.length === 0 && (
+        {realOrders.length === 0 && onlineOrders.length === 0 && (
           <div className={`p-5 text-center text-sm ${mutedClass}`}>
             No order data yet
           </div>
@@ -194,7 +234,11 @@ export default function AnalyticsTab({
               <div key={hour} className="mb-1.5">
                 <div className="mb-0.5 flex items-center justify-between text-[11px]">
                   <span className={textClass}>{hour}:00</span>
-                  <span className={count === maxHourCount ? "text-[#22c55e]" : mutedClass}>
+                  <span
+                    className={
+                      count === maxHourCount ? "text-[#22c55e]" : mutedClass
+                    }
+                  >
                     {count} orders
                   </span>
                 </div>
@@ -203,14 +247,17 @@ export default function AnalyticsTab({
                     className="h-full rounded"
                     style={{
                       width: `${(count / maxHourCount) * 100}%`,
-                      backgroundColor: count === maxHourCount ? "#22c55e" : "#7c5ccc",
+                      backgroundColor:
+                        count === maxHourCount ? "#22c55e" : "#7c5ccc",
                     }}
                   />
                 </div>
               </div>
             ))}
-          {realOrders.length === 0 && (
-            <div className={`p-2 text-center text-xs ${mutedClass}`}>No data</div>
+          {realOrders.length === 0 && onlineOrders.length === 0 && (
+            <div className={`p-2 text-center text-xs ${mutedClass}`}>
+              No data
+            </div>
           )}
         </div>
 
@@ -222,7 +269,11 @@ export default function AnalyticsTab({
               <div key={day} className="mb-1.5">
                 <div className="mb-0.5 flex items-center justify-between text-[11px]">
                   <span className={textClass}>{day}</span>
-                  <span className={count === maxDayCount ? "text-[#22c55e]" : mutedClass}>
+                  <span
+                    className={
+                      count === maxDayCount ? "text-[#22c55e]" : mutedClass
+                    }
+                  >
                     {count} orders
                   </span>
                 </div>
@@ -231,7 +282,8 @@ export default function AnalyticsTab({
                     className="h-full rounded"
                     style={{
                       width: `${(count / maxDayCount) * 100}%`,
-                      backgroundColor: count === maxDayCount ? "#22c55e" : "#7c5ccc",
+                      backgroundColor:
+                        count === maxDayCount ? "#22c55e" : "#7c5ccc",
                     }}
                   />
                 </div>
@@ -248,7 +300,11 @@ export default function AnalyticsTab({
               <div key={month} className="mb-1.5">
                 <div className="mb-0.5 flex items-center justify-between text-[11px]">
                   <span className={textClass}>{month}</span>
-                  <span className={count === maxMonthCount ? "text-[#22c55e]" : mutedClass}>
+                  <span
+                    className={
+                      count === maxMonthCount ? "text-[#22c55e]" : mutedClass
+                    }
+                  >
                     {count} orders
                   </span>
                 </div>
@@ -257,7 +313,8 @@ export default function AnalyticsTab({
                     className="h-full rounded"
                     style={{
                       width: `${(count / maxMonthCount) * 100}%`,
-                      backgroundColor: count === maxMonthCount ? "#22c55e" : "#7c5ccc",
+                      backgroundColor:
+                        count === maxMonthCount ? "#22c55e" : "#7c5ccc",
                     }}
                   />
                 </div>

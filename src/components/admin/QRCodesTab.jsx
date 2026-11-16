@@ -10,11 +10,11 @@ export default function QRCodesTab({
   darkMode,
   tables = [],
 }) {
-  const base = window.location.href.split("?")[0];
+  const base = window.location.origin;
   const [selectedTable, setSelectedTable] = useState(null);
   const [modalMessage, setModalMessage] = useState(null);
   const activeTables = (tables || [])
-    .filter((table) => table.active)
+    .filter((table) => table.active && table.number !== 0 && table.id !== "delivery")
     .sort((a, b) => Number(a.number) - Number(b.number));
   const selectedTableData = activeTables.find(
     (table) => Number(table.number) === Number(selectedTable),
@@ -319,8 +319,8 @@ export default function QRCodesTab({
         </div>
         <div style={{ display: "grid", gap: "12px" }}>
           {[
-            ["Admin Dashboard", `${base}?view=admin`],
-            ["Kitchen Display", `${base}?view=kitchen`],
+            ["Admin Dashboard", `${base}/login/admin`],
+            ["Kitchen Display", `${base}/login/kitchen`],
           ].map(([l, u]) => (
             <div
               key={l}

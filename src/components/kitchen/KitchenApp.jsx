@@ -6,7 +6,7 @@ export default function KitchenApp() {
     <StaffAccessGate
       title="Kitchen Access"
       subtitle="Grand Table Restaurant"
-      description="Sign in with a Firebase staff account that is allowlisted in /staffMembers."
+      description="Sign in with a staff account."
       loadingLabel="Loading kitchen access..."
     >
       {({ user, onLogout }) => (
