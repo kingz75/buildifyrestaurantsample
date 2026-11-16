@@ -19,10 +19,7 @@ import {
 } from "firebase/database";
 import { database } from "../firebase";
 
-import {
-  DEFAULT_BILLING_SETTINGS,
-  normalizeBillingSettings,
-} from "./billing";
+import { DEFAULT_BILLING_SETTINGS, normalizeBillingSettings } from "./billing";
 
 // ============================================================
 // CATEGORIES
@@ -102,17 +99,26 @@ const mapOrderSnapshot = (snapshot) => ({
   id: snapshot.key,
 });
 const sortOrdersByTimestampDesc = (orders = []) =>
-  [...orders].sort((a, b) => Number(b?.timestamp || 0) - Number(a?.timestamp || 0));
-const createRandomToken = (size = TABLE_ACCESS_CODE_LENGTH) => {
+  [...orders].sort(
+    (a, b) => Number(b?.timestamp || 0) - Number(a?.timestamp || 0),
+  );
+export const createRandomToken = (size = TABLE_ACCESS_CODE_LENGTH) => {
   const alphabet =
     "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789_-";
   const values = new Uint32Array(size);
-  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.getRandomValues === "function"
+  ) {
     crypto.getRandomValues(values);
-    return Array.from(values, (value) => alphabet[value % alphabet.length]).join("");
+    return Array.from(
+      values,
+      (value) => alphabet[value % alphabet.length],
+    ).join("");
   }
-  return Array.from({ length: size }, () =>
-    alphabet[Math.floor(Math.random() * alphabet.length)],
+  return Array.from(
+    { length: size },
+    () => alphabet[Math.floor(Math.random() * alphabet.length)],
   ).join("");
 };
 
@@ -121,11 +127,7 @@ export const getOrders = async (options = {}) => {
   const limit = toSafeLimit(options.limit, DEFAULT_RECENT_ORDERS_LIMIT);
   const ordersQuery = includeAll
     ? ordersRef
-    : query(
-      ordersRef,
-      orderByChild("timestamp"),
-      limitToLast(limit),
-    );
+    : query(ordersRef, orderByChild("timestamp"), limitToLast(limit));
   const snapshot = await get(ordersQuery);
   if (snapshot.exists()) {
     return sortOrdersByTimestampDesc(
@@ -222,7 +224,8 @@ export const subscribeToOrders = (callback, options = {}) => {
 
   const handleError = (error) => {
     console.error("subscribeToOrders: Error:", error);
-    if (!disposed) callback(sortOrdersByTimestampDesc(Array.from(orderCache.values())));
+    if (!disposed)
+      callback(sortOrdersByTimestampDesc(Array.from(orderCache.values())));
   };
 
   const unsubInitial = onValue(
@@ -233,7 +236,11 @@ export const subscribeToOrders = (callback, options = {}) => {
   );
   const unsubAdded = onChildAdded(ordersQuery, upsertOrder, handleError);
   const unsubChanged = onChildChanged(ordersQuery, upsertOrder, handleError);
-  const unsubRemoved = onChildRemoved(ordersQuery, removeOrderFromCache, handleError);
+  const unsubRemoved = onChildRemoved(
+    ordersQuery,
+    removeOrderFromCache,
+    handleError,
+  );
 
   return () => {
     disposed = true;
@@ -245,6 +252,28 @@ export const subscribeToOrders = (callback, options = {}) => {
     unsubChanged();
     unsubRemoved();
   };
+};
+
+export const subscribeToOrderById = (orderId, callback) => {
+  if (!isNonEmptyString(orderId)) {
+    callback(null);
+    return () => {};
+  }
+  const orderRef = ref(database, `orders/${orderId}`);
+  return onValue(
+    orderRef,
+    (snapshot) => {
+      if (snapshot.exists()) {
+        callback({ ...snapshot.val(), id: snapshot.key });
+      } else {
+        callback(null);
+      }
+    },
+    (error) => {
+      console.error(`subscribeToOrderById Error (${orderId}):`, error);
+      callback(null);
+    },
+  );
 };
 
 export const subscribeToTableOrders = (accessCode, callback, options = {}) => {
@@ -301,7 +330,8 @@ export const subscribeToTableOrders = (accessCode, callback, options = {}) => {
 
   const handleError = (error) => {
     console.error("subscribeToTableOrders: Error:", error);
-    if (!disposed) callback(sortOrdersByTimestampDesc(Array.from(orderCache.values())));
+    if (!disposed)
+      callback(sortOrdersByTimestampDesc(Array.from(orderCache.values())));
   };
 
   const unsubInitial = onValue(
@@ -311,8 +341,16 @@ export const subscribeToTableOrders = (accessCode, callback, options = {}) => {
     { onlyOnce: true },
   );
   const unsubAdded = onChildAdded(tableOrdersQuery, upsertOrder, handleError);
-  const unsubChanged = onChildChanged(tableOrdersQuery, upsertOrder, handleError);
-  const unsubRemoved = onChildRemoved(tableOrdersQuery, removeOrderFromCache, handleError);
+  const unsubChanged = onChildChanged(
+    tableOrdersQuery,
+    upsertOrder,
+    handleError,
+  );
+  const unsubRemoved = onChildRemoved(
+    tableOrdersQuery,
+    removeOrderFromCache,
+    handleError,
+  );
 
   return () => {
     disposed = true;
@@ -356,7 +394,7 @@ export const subscribeToMenu = (callback) => {
           tags: [],
           image: "🍽️",
           ...data,
-          id
+          id,
         }));
         callback(items);
       } else {
@@ -373,14 +411,26 @@ export const subscribeToMenu = (callback) => {
 // ============================================================
 // TABLES
 // ============================================================
-const DEFAULT_TABLES = Array.from({ length: 20 }, (_, i) => ({
-  id: i + 1,
-  number: i + 1,
-  name: `Table ${i + 1}`,
-  capacity: 4,
+export const ONLINE_DELIVERY_TABLE = {
+  id: "delivery",
+  number: 0,
+  name: "Online Delivery",
   active: true,
-  accessCode: createRandomToken(),
-}));
+  accessCode: "DELIVERY123",
+  capacity: 0,
+};
+
+const DEFAULT_TABLES = [
+  ONLINE_DELIVERY_TABLE,
+  ...Array.from({ length: 20 }, (_, i) => ({
+    id: i + 1,
+    number: i + 1,
+    name: `Table ${i + 1}`,
+    capacity: 4,
+    active: true,
+    accessCode: createRandomToken(),
+  })),
+];
 
 const tablesRef = ref(database, "tables");
 const normalizeTable = (table, fallbackId) => ({
@@ -478,6 +528,65 @@ export const subscribeToBillingSettings = (callback) => {
 };
 
 // ============================================================
+// ONLINE ORDER CHARGES
+// ============================================================
+const onlineChargesRef = ref(database, "settings/onlineCharges");
+
+const DEFAULT_ONLINE_CHARGES = {
+  deliveryLocations: [
+    { id: "inner-city", name: "Inner City", fee: 1000 },
+    { id: "mainland", name: "Lagos Mainland", fee: 2500 },
+    { id: "island", name: "Lagos Island / Lekki", fee: 4000 },
+    { id: "outskirts", name: "Outskirts (Ikorodu/Epe/etc)", fee: 6000 },
+  ],
+  packagingFee: 0,
+  billers: [],
+};
+
+const normalizeOnlineCharges = (raw = {}) => ({
+  deliveryLocations: Array.isArray(raw.deliveryLocations)
+    ? raw.deliveryLocations.map((loc, i) => ({
+        id: loc.id || `loc_${i}`,
+        name: String(loc.name || ""),
+        fee: Number(loc.fee || 0),
+      }))
+    : [...DEFAULT_ONLINE_CHARGES.deliveryLocations],
+  packagingFee: Number(raw.packagingFee || 0),
+  billers: Array.isArray(raw.billers)
+    ? raw.billers.map((biller, i) => ({
+        id: biller.id || `biller_${i}`,
+        name: String(biller.name || ""),
+        amount: Number(biller.amount || 0),
+        percent: Number(biller.percent || 0),
+        active: biller.active !== false,
+      }))
+    : [],
+});
+
+export const getOnlineCharges = () => ({ ...DEFAULT_ONLINE_CHARGES });
+
+export const saveOnlineCharges = async (charges) => {
+  await set(onlineChargesRef, normalizeOnlineCharges(charges));
+};
+
+export const subscribeToOnlineCharges = (callback) => {
+  return onValue(
+    onlineChargesRef,
+    (snapshot) => {
+      if (snapshot.exists()) {
+        callback(normalizeOnlineCharges(snapshot.val()));
+      } else {
+        callback({ ...DEFAULT_ONLINE_CHARGES });
+      }
+    },
+    (error) => {
+      console.error("Firebase online charges subscription error:", error);
+      callback({ ...DEFAULT_ONLINE_CHARGES });
+    },
+  );
+};
+
+// ============================================================
 // SOUNDS
 // ============================================================
 export function playNotificationSound() {
@@ -498,7 +607,7 @@ export function playNotificationSound() {
       osc.start(ctx.currentTime + i * 0.15);
       osc.stop(ctx.currentTime + i * 0.15 + 0.3);
     });
-  } catch { }
+  } catch {}
 }
 
 // ============================================================
@@ -514,7 +623,7 @@ export const timeAgo = (ts) => {
 };
 
 export const generateId = () =>
-  Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  Date.now().toString(36).slice(-6) + Math.random().toString(36).slice(2, 8);
 
 // ============================================================
 // NOTIFICATIONS (localStorage for simplicity)

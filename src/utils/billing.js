@@ -29,14 +29,22 @@ export const normalizeBillingSettings = (settings = {}) => ({
 const calculateCharge = (subtotal, amount, percent) =>
   toNumber(amount) + subtotal * (toNumber(percent) / 100);
 
-export const calculateBillBreakdown = (subtotalInput, settingsInput) => {
+export const calculateBillBreakdown = (subtotalInput, settingsInput, onlineChargesInput = null) => {
   const subtotal = Math.max(0, toNumber(subtotalInput));
   const settings = normalizeBillingSettings(settingsInput);
+
+  const useOnlineBillers = onlineChargesInput !== null && 
+    Array.isArray(onlineChargesInput?.billers) && 
+    onlineChargesInput.billers.length > 0;
+
+  const billers = useOnlineBillers 
+    ? normalizeCustomBillers(onlineChargesInput.billers)
+    : settings.customBillers;
 
   const serviceCharge = 0;
   const vat = 0;
   const tax = 0;
-  const customBillerCharges = settings.customBillers
+  const customBillerCharges = billers
     .filter((biller) => biller.active)
     .map((biller) => ({
       ...biller,
@@ -60,12 +68,35 @@ export const calculateBillBreakdown = (subtotalInput, settingsInput) => {
   };
 };
 
+export const calculateOnlineOrderBreakdown = (order, onlineChargesInput = null) => {
+  const subtotal = toNumber(order?.subtotal) || sumItemsSubtotal(order?.items);
+  
+  const storedBillers = Array.isArray(order?.billers) ? order.billers : [];
+  const billerCharges = toNumber(order?.billerCharges) || 0;
+  
+  const deliveryFee = toNumber(order?.deliveryFee) || 0;
+  const packagingFee = toNumber(order?.packagingFee) || 0;
+  
+  const total = subtotal + deliveryFee + packagingFee + billerCharges;
+
+  return {
+    subtotal,
+    deliveryFee,
+    packagingFee,
+    customBillerCharges: storedBillers,
+    customBillerTotal: billerCharges,
+    total,
+  };
+};
+
 export const getOrderBreakdown = (
   order,
   fallbackSettings = DEFAULT_BILLING_SETTINGS,
+  onlineCharges = null,
 ) => {
   const isPaidOrder =
     String(order?.paymentStatus || "").toLowerCase() === "paid";
+  const isOnlineOrder = order?.type === "delivery";
   const subtotal =
     typeof order?.subtotal !== "undefined"
       ? toNumber(order.subtotal)
@@ -106,15 +137,22 @@ export const getOrderBreakdown = (
     };
   }
 
+  if (isOnlineOrder && Array.isArray(order?.billers) && order.billers.length > 0) {
+    return calculateOnlineOrderBreakdown(order, onlineCharges);
+  }
+
   const useLiveFallbackForUnpaid = fallbackSettings !== DEFAULT_BILLING_SETTINGS;
   const settingsForComputation = isPaidOrder
     ? order?.billingSettingsSnapshot || fallbackSettings
     : useLiveFallbackForUnpaid
       ? fallbackSettings
       : order?.billingSettingsSnapshot || fallbackSettings;
+  
+  const effectiveOnlineCharges = isOnlineOrder ? onlineCharges : null;
   const computed = calculateBillBreakdown(
     subtotal,
     settingsForComputation,
+    effectiveOnlineCharges,
   );
 
   return {
